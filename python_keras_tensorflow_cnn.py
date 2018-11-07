@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+#%%
 import numpy as np
 import matplotlib.pyplot as plt
 import keras
@@ -10,12 +10,21 @@ from keras.utils import np_utils
 from keras import backend as K
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten
-from keras.layers import Conv2D, MaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, ZeroPadding2D
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import EarlyStopping
 from keras import optimizers
+from keras.engine.topology import Layer
 filedir = 'data/'
 
+def main():
+     res = runImageClassification()
+     preds=np.argmax(res[1], axis=1)
+     truth=np.argmax(res[0], axis=1)
+     from sklearn.metrics import confusion_matrix
+     print(confusion_matrix(truth, preds, sample_weight=None))
+
+#%%
 # Here we just make sure the image format is as desired. This will make the feature (x)
 # data - i.e. the RGB pixel values - for each image have the shape 3x32x32.
 if K.backend()=='tensorflow':
@@ -33,27 +42,90 @@ if K.backend()=='tensorflow':
 # function. You will need to specify all parameters of the training algorithm (batch size, etc), and the 
 # callbacks you will use (EarlyStopping and ModelCheckpoint). You will need to make sure you save and load 
 # into the model the weight values of its best performing epoch.
+
+class LBCNN(Layer):
+
+    def __init__(self, output_dim, **kwargs):
+        self.output_dim = output_dim
+        super(MyLayer, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+        self.kernel = self.add_weight(name='kernel', 
+                                      shape=(input_shape[1], self.output_dim),
+                                      initializer='uniform',
+                                      trainable=False)
+        super(LBCNN, self).build(input_shape)  # Be sure to call this at the end
+
+    def call(self, x):
+        return K.dot(x, self.kernel)
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], self.output_dim)
+    
     
 def myGetModel(x_tr,y_tr, x_va,y_va, x_te,y_te):
     num_classes = 2
     cNN = Sequential()
-    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(1,80,80), padding ="same"))
-    cNN.add(Dropout(0.5))
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', input_shape=(1,80,80), padding ="same", trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
-    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    cNN.add(Dropout(0.25))
     
-    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
-    cNN.add(Dropout(0.5))
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
-    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='relu'))
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    cNN.add(Dropout(0.5))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', trainable = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(MaxPooling2D(pool_size=(2, 2)))
+    
     cNN.add(Flatten())
-    
-    cNN.add(Dense(1024, activation='relu'))
-    cNN.add(Dropout(0.5))
+    cNN.add(Dense(256, activation='relu'))
     cNN.add(Dense(num_classes, activation='softmax'))
     
     sgd = optimizers.SGD(lr=0.1, decay=1e-6)
@@ -85,11 +157,16 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     fold1te=[[7,8],[36]]
     fold2te=[[7,8],[12]]
     fold3te=[[7,8],[37,38]]
-        
+
     # Extracting data from files
     data_fold1_tr=[]
     labels_fold1_tr=[]
     
+    data_fold1_te=[]
+    labels_fold1_te=[]
+    
+    # training and validation data
+    #%%
     for g in fold1tr[0]:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -108,27 +185,47 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         data_fold1_tr += d
         labels_fold1_tr += list(np.ones(len(d)))
         
+        # test data
+    for g in fold1te[0]:
+        filename = filedir+'glass'+str(g)+'.hdf5'
+        f = h5py.File(filename, 'r')
+        
+        a_group_key = list(f.keys())[0]
+        d=list(f[a_group_key])
+        data_fold1_te += d
+        labels_fold1_te += list(np.zeros(len(d)))
+            
+    for g in fold1te[1]:
+        filename = filedir+'glass'+str(g)+'.hdf5'
+        f = h5py.File(filename, 'r')
+        
+        a_group_key = list(f.keys())[0]
+        d=list(f[a_group_key])
+        data_fold1_te += d
+        labels_fold1_te += list(np.ones(len(d)))
+       
+    #%%    
     # Shuffling data and partitioning into training, testing, and validation sets    
     nSamples=len(labels_fold1_tr)
-    tr_perc=.75
-    va_perc=.15
-    # te_perc = 0.2
+    tr_perc=.80
+    va_perc=.20
     
     seed = 1
     random.seed(seed)
     random.shuffle(labels_fold1_tr)
     random.seed(seed)
     random.shuffle(data_fold1_tr)
+
     
     tr=round(nSamples*tr_perc)
     va=round(nSamples*va_perc)
         
     x_tr = np.asarray(data_fold1_tr[0:tr])
-    x_va = np.asarray(data_fold1_tr[tr:(tr+va)])
-    x_te = np.asarray(data_fold1_tr[(tr+va):nSamples])
+    x_va = np.asarray(data_fold1_tr[tr:nSamples])
+    x_te = np.asarray(data_fold1_te)
     y_tr = np.asarray(labels_fold1_tr[0:tr])
-    y_va = np.asarray(labels_fold1_tr[tr:(tr+va)])
-    y_te = np.asarray(labels_fold1_tr[(tr+va):nSamples])
+    y_va = np.asarray(labels_fold1_tr[tr:nSamples])
+    y_te = np.asarray(labels_fold1_te)
 
     # converting vectors to numpy arrays
     y_tr = np_utils.to_categorical(y_tr, 2)
@@ -141,7 +238,7 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     x_va /= 255
     x_te /= 255
         
-    
+    #%%
     # Create model 
     print("Creating model...")
     model=myGetModel(x_tr,y_tr, x_va,y_va, x_te,y_te)
@@ -149,13 +246,18 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     # Fit model
     print("Fitting model...")
     model=myFitModel(model,x_tr,y_tr, x_va,y_va, x_te,y_te)
-
+    
+    results = model.predict(x_te)
+    
     # Evaluate on test data
     print("Evaluating model...")
     score = model.evaluate(x_te, y_te, verbose=0)
     print('Test accuracy:', score[1])
 
+    return((y_te, results))
 
+if __name__ == "__main__":
+    main()
 
 
 
