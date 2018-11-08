@@ -63,70 +63,100 @@ class LBCNN(Layer):
 
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
+
     
+def getLBCNNWeights(size, count, kSparsity):
+    bias=np.zeros(count)
+    numElements=size[0]*size[1]*count
+    weight=np.zeros(numElements)
+    index=np.random.choice(numElements, int(kSparsity*numElements))
+    for i in index:
+        weight[i]=np.random.binomial(1, 0.5)*2-1
+    weight=weight.reshape(size[0],size[1],1,count)
+    return np.asarray([weight,bias])
+
     
 def myGetModel():
     num_classes = 2
+    sparsity=0.1
+    kernel_size=(3,3)
+    k=32
     cNN = Sequential()
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', input_shape=(1,80,80), padding ="same",training = False))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', input_shape=(1,80,80), 
+                   padding ="same",trainable = False, weights=np.array(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    k=k*2
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    k=k*2
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    k=k*2
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    
+    cNN.add(ZeroPadding2D((1,1)))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(Flatten())
-    cNN.add(Dense(256, activation='relu'))
+    cNN.add(Dense(k, activation='relu'))
     cNN.add(Dense(num_classes, activation='softmax'))
     
     sgd = optimizers.SGD(lr=0.1, decay=1e-6)
