@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import keras
 import h5py
 import random
+from keras.datasets import cifar10
 from keras.utils import np_utils
 from keras import backend as K
 from keras.models import Sequential
@@ -14,7 +15,9 @@ from keras.callbacks import ModelCheckpoint
 from keras.callbacks import EarlyStopping
 from keras import optimizers
 from keras.engine.topology import Layer
-filedir = 'data/'
+filedir = './data/'
+
+#%% MAIN SCRIPT
 def main():
      res = runImageClassification()
      preds=np.argmax(res[1], axis=1)
@@ -62,64 +65,64 @@ class LBCNN(Layer):
         return (input_shape[0], self.output_dim)
     
     
-def myGetModel(x_tr,y_tr, x_va,y_va, x_te,y_te):
+def myGetModel():
     num_classes = 2
     cNN = Sequential()
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', input_shape=(1,80,80), padding ="same"))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', input_shape=(1,80,80), padding ="same",training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(32, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(64, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(128, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid'))
- #   cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid', training = False))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid'))
-#    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
     cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='sigmoid'))
- #   cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    cNN.add(Conv2D(256, kernel_size=(3, 3), activation='relu'))
+    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(Flatten())
@@ -128,15 +131,15 @@ def myGetModel(x_tr,y_tr, x_va,y_va, x_te,y_te):
     
     sgd = optimizers.SGD(lr=0.1, decay=1e-6)
     #adam = optimizers.Adam(lr=0.1, beta_1=0.9, beta_2=0.999)
-    adam = optimizers.adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-    cNN.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = adam)
+    #adam = optimizers.adam(lr=0.01, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+    cNN.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = 'adam')
     return cNN
     
-def myFitModel(cNN,x_tr,y_tr, x_va,y_va, x_te,y_te):
+def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va):
     path = "weights-best.hdf5"
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
-    cNN.fit(x_tr, y_tr, epochs = 1, batch_size = 100, validation_data = (x_va, y_va),callbacks = [model_checkpoint, early_stopping])
+    cNN.fit(x_tr, y_tr, epochs = epochs, batch_size = 100, validation_data = (x_va, y_va),callbacks = [model_checkpoint, early_stopping])
     cNN.load_weights(path)
     return cNN
     
@@ -148,7 +151,7 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     print("Preparing data...")
     class_names=['healthy','cancer']
         
-    filedir = '../slides/'
+    filedir = './data/'
     #fold1tr=[[3,4,5,6],[37,38,12]]
     fold2tr=[[3,4,5,6],[36,37,38]]
     #fold3tr=[[3,4,5,6],[12,36]]
@@ -214,9 +217,7 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     random.seed(seed)
     random.shuffle(data_fold2_tr)
 
-    
     tr=round(nSamples*tr_perc)
-    va=round(nSamples*va_perc)
         
     x_tr = np.asarray(data_fold2_tr[0:tr])
     x_va = np.asarray(data_fold2_tr[tr:nSamples])
@@ -232,11 +233,19 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     
     #Normalise data by calculating the mean and standard deviation for the 
     #training data, and transform the training and test data using this
-    mean_value=np.mean(x_tr)
-    std_value=np.std(x_tr)
-    x_tr = (x_tr.astype('float32')-mean_value)/std_value
-    x_va = (x_va.astype('float32')-mean_value)/std_value
-    x_te = (x_te.astype('float32')-mean_value)/std_value
+    x_tr = x_tr.astype('float32')
+    x_va = x_va.astype('float32')
+    x_te = x_te.astype('float32')
+    
+#%%
+    for x in range (0,len(x_tr)):
+        x_tr[x] = (x_tr[x]-np.mean(x_tr[x]))/ np.std(x_tr[x])
+        
+    for x in range (0,len(x_va)):
+        x_va[x] = (x_va[x]-np.mean(x_va[x]))/ np.std(x_va[x])
+        
+    for x in range (0,len(x_te)):
+        x_te[x] = (x_te[x]-np.mean(x_te[x]))/ np.std(x_te[x])
 #    x_tr /= 255
 #    x_va /= 255
 #    x_te /= 255
@@ -244,11 +253,12 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     #%%
     # Create model 
     print("Creating model...")
-    model=myGetModel(x_tr,y_tr, x_va,y_va, x_te,y_te)
+    model=myGetModel()
     
     # Fit model
     print("Fitting model...")
-    model=myFitModel(model,x_tr,y_tr, x_va,y_va, x_te,y_te)
+    epochs = 15
+    model=myFitModel(model,epochs,x_tr,y_tr, x_va,y_va)
     
     results = model.predict(x_te)
     
