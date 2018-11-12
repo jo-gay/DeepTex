@@ -78,88 +78,41 @@ def getLBCNNWeights(size, count, kSparsity):
     
 def myGetModel():
     num_classes = 2
-    sparsity=0.1
+    sparsity=0.5
     kernel_size=(3,3)
-    k=32
+    k=20
     cNN = Sequential()
     cNN.add(ZeroPadding2D((1,1)))
     cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', input_shape=(1,80,80), 
                    padding ="same",trainable = False, weights=np.array(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
-    k=k*2
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    for x in range(0,5):
+        cNN.add(ZeroPadding2D((1,1)))
+        cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                       , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+        cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
     
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    k=k*2
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    k=k*2
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    cNN.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
-    
-    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
-                   , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
-    cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+    for x in range(0,5):
+        cNN.add(ZeroPadding2D((1,1)))
+        cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                       , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+        cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+        
+    for x in range(0,5):
+        cNN.add(ZeroPadding2D((1,1)))
+        cNN.add(Conv2D(k, kernel_size=kernel_size, activation='sigmoid', trainable = False
+                       , weights=np.asarray(getLBCNNWeights(kernel_size, k, sparsity))))
+        cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
+
     cNN.add(MaxPooling2D(pool_size=(2, 2)))
     
     cNN.add(Flatten())
-    cNN.add(Dense(k, activation='relu'))
+    cNN.add(Dense(1024, activation='relu'))
     cNN.add(Dense(num_classes, activation='softmax'))
     
-    sgd = optimizers.SGD(lr=0.1, decay=1e-6)
+    #sgd = optimizers.SGD(lr=0.1, decay=1e-6)
     #adam = optimizers.Adam(lr=0.1, beta_1=0.9, beta_2=0.999)
     #adam = optimizers.adam(lr=0.01, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
     cNN.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = 'adam')
@@ -206,7 +159,13 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         d=list(f[a_group_key])
         data_fold2_tr += d
         labels_fold2_tr += list(np.zeros(len(d)))
-            
+            #%%
+    # we shuffle the data in preparation for removing healthy samples, in order to get 50/50 healthy/cancer cells
+    seed=2
+    random.seed(seed)
+    random.shuffle(data_fold2_tr)
+    nHealthy = len(data_fold2_tr)
+#%%    
     for g in fold2tr[1]:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -241,11 +200,18 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     tr_perc=.80
     va_perc=.20
     
+    #removing healthy cells so that we have 50/50 healthy/sick cells
+    data_fold2_tr = data_fold2_tr[(2*nHealthy - nSamples):]
+    labels_fold2_tr = labels_fold2_tr[(2*nHealthy - nSamples):]
+        
     seed = 1
     random.seed(seed)
     random.shuffle(labels_fold2_tr)
     random.seed(seed)
     random.shuffle(data_fold2_tr)
+    
+    # we update the number of samples after removing healty cells
+    nSamples = len(data_fold2_tr)
 
     tr=round(nSamples*tr_perc)
         
