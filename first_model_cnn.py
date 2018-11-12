@@ -3,9 +3,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import keras
-import h5py
+import h5py, sys
 import random
-from keras.datasets import cifar10
+import tensorflow as tf
 from keras.utils import np_utils
 from keras import backend as K
 from keras.models import Sequential
@@ -15,34 +15,53 @@ from keras.callbacks import ModelCheckpoint
 from keras.callbacks import EarlyStopping
 from keras import optimizers
 from keras.engine.topology import Layer
+from sklearn.metrics import confusion_matrix
+
 filedir = './data/'
 
 #%% MAIN SCRIPT
-def main():
-     res = runImageClassification()
-     preds=np.argmax(res[1], axis=1)
-     truth=np.argmax(res[0], axis=1)
-     from sklearn.metrics import confusion_matrix
-     print(confusion_matrix(truth, preds, sample_weight=None))
+def main(GPU_NUM):
+    
+    sess = doInitTasks(GPU_NUM)
+    with sess.as_default():
+        res = runImageClassification()
+
+    preds=np.argmax(res[1], axis=1)
+    truth=np.argmax(res[0], axis=1)
+    
+    print(confusion_matrix(truth, preds, sample_weight=None))
 
 #%%
-# Here we just make sure the image format is as desired. This will make the feature (x)
-# data - i.e. the RGB pixel values - for each image have the shape 3x32x32.
-if K.backend()=='tensorflow':
-    K.set_image_dim_ordering("th")
+    
+def doInitTasks(GPU_NUM):
+    
+    #Use the command line parameter GPU_NUM to configure which GPU(s) to use
+    #Assumes that the machine has totalGPU GPUs (hard-coded as 2) and if a
+    #number from 0 to totalGPUs-1 is entered, uses that GPU. 
+    #If no command line parameter is supplied, use CPU.
+    #Otherwise (e.g. commandline arg = totalGPUs), use all GPUs.
+    
+    totalGPUs=2
+    config = None
 
-# This is the main function. You need to write the getModel and fitModel functions to pass to this.
-# Call your functions 'myGetModel' and 'myFitModel'.
-# The getModel function should accept an object of the CIFAR class, and return a compiled Keras CNN model. 
-# In this function you will specify the network structure (including regularization) and the optimizer to 
-# be used (and its parameters like learning rate), and run compile the model (in the Keras sense of running 
-# model.compile).
-# The fitModel function should accect two arguments. The first is the CNN model you return from your getModel 
-# function, and the second is the CIFAR classed data object. It will return a trained Keras CNN model, which 
-# will then be applied to the test data. In this function you will train the model, using the Keras model.fit 
-# function. You will need to specify all parameters of the training algorithm (batch size, etc), and the 
-# callbacks you will use (EarlyStopping and ModelCheckpoint). You will need to make sure you save and load 
-# into the model the weight values of its best performing epoch.
+    if(GPU_NUM is None):
+        config = tf.ConfigProto(device_count = {'GPU':0})
+    elif(GPU_NUM < totalGPUs):
+        config = tf.ConfigProto()
+        config.gpu_options.visible_device_list = str(GPU_NUM)
+    else:
+        config = tf.ConfigProto()
+
+    sess = tf.Session(config=config)
+    K.set_session(sess)
+    
+    # Here we just make sure the image format is as desired. This will make the feature (x)
+    # data - i.e. the RGB pixel values - for each image have the shape 3x32x32.
+    if K.backend()=='tensorflow':
+        K.set_image_dim_ordering("th")
+        
+    return sess
+
 
 class LBCNN(Layer):
 
@@ -266,7 +285,15 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     return((y_te, results))
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        GPU_NUM = int(sys.argv[1])
+        print("Using GPU %d"%GPU_NUM)
+    else:
+        print("Using CPU only")
+        GPU_NUM=None
+
+    main(GPU_NUM)
+    
 
 
 
