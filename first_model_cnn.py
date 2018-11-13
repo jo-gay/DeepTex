@@ -57,8 +57,15 @@ def doInitTasks(GPU_NUM):
     
     # Here we just make sure the image format is as desired. This will make the feature (x)
     # data - i.e. the RGB pixel values - for each image have the shape 3x32x32.
-    if K.backend()=='tensorflow':
-        K.set_image_dim_ordering("th")
+#    if K.backend()=='tensorflow':
+#        K.set_image_dim_ordering("th")
+    
+    #In this case our data is ordered theano-style, channels first, but we are going to change it
+    #to tensorflow style to work around a problem with the batch normalisation 'axis' parameter 
+    #when running on GPU. Therefore if theano backend is in use, we need to tell it
+    #to use tensorflow order.
+    if K.backend()=='theano':
+        K.set_image_dim_ordering("tf")
         
     return sess
 
@@ -118,6 +125,7 @@ from keras import models
 img_height = 80
 img_width = 80
 img_channels = 1
+img_shape=(img_height, img_width, img_channels)
 
 #
 # network params
@@ -133,17 +141,11 @@ def residual_network(x):
     """
     def add_common_layers(y):
         y = layers.BatchNormalization()(y)
-        y = layers.LeakyReLU()(y)
+        y = layers.ReLU()(y)
+#        y = layers.LeakyReLU()(y)
 
         return y
     
-    #Added function to use LBCNN layer instead of standard CNN
-    def lb_convolution(y, nb_channels, _strides, sparsity=0.5):
-        kernel_size=(3,3)
-        return layers.Conv2D(nb_channels, kernel_size=kernel_size, strides=_strides, 
-                              weights=getLBCNNWeights(kernel_size, nb_channels, sparsity, nb_channels), 
-                              padding='same', trainable=False)(y)
-
     def grouped_convolution(y, nb_channels, _strides):
         # when `cardinality` == 1 this is just a standard convolution
         if cardinality == 1:
@@ -177,12 +179,12 @@ def residual_network(x):
         y = layers.Conv2D(nb_channels_in, kernel_size=(1, 1), strides=(1, 1), padding='same')(y)
         y = add_common_layers(y)
 
-        # ResNeXt (identical to ResNet when `cardinality` == 1)
-#        y = lb_convolution(y, nb_channels_in, _strides=_strides)
-        y = grouped_convolution(y, nb_channels_in, _strides=_strides)
+        # modify to use LBCNN instead of normal
+        y = lb_convolution(y, 1, nb_channels_out, _strides=_strides)
+        #y = grouped_convolution(y, nb_channels_in, _strides=_strides)
         y = add_common_layers(y)
 
-        y = layers.Conv2D(nb_channels_out, kernel_size=(1, 1), strides=(1, 1), padding='same')(y)
+        y = layers.Conv2D(1, kernel_size=(1, 1), strides=(1, 1), padding='same', activation='linear')(y)
         # batch normalization is employed after aggregating the transformations and before adding to the shortcut
         y = layers.BatchNormalization()(y)
 
@@ -201,45 +203,64 @@ def residual_network(x):
 
         return y
 
-#    # conv1
-    x = layers.Conv2D(64, kernel_size=(7, 7), strides=(2, 2), padding='same')(x)
+    #Added function to use LBCNN layer instead of standard CNN
+    def lb_convolution(y, nb_filters, nb_channels, _strides, sparsity=0.5):
+        kernel_size=(3,3)
+        return layers.Conv2D(nb_filters, kernel_size=kernel_size, strides=_strides, 
+                              weights=getLBCNNWeights(kernel_size, nb_filters, sparsity, nb_channels), 
+                              padding='same', trainable=False)(y)
+
+    #Added function to define LBCNN block with residual connection attempting to emulate functionality
+    #of resnet-binary-felix.lua:createModel.basicBlock
+    def LBCNN_res_block(y, nb_filters, nb_channels, _strides=(1, 1)):
+        """
+        Our network consists of a stack of LBCNN blocks, each with a residual connection.
+        An LBCNN block is a 3x3 convolutional layer with nb_filters channels, with non-trainable weights,
+        followed by a 1x1 convolutional layer with a single channel which creates a linear combination
+        of the outputs of the filters in the previous layer.
+        """
+        shortcut = y
+
+        y = layers.BatchNormalization()(y)
+        y = lb_convolution(y, nb_filters, nb_channels, _strides=_strides)
+        y = layers.ReLU()(y)
+
+        y = layers.Conv2D(nb_channels, kernel_size=(1, 1), strides=(1, 1), activation='linear')(y)
+        y = layers.add([shortcut, y])
+
+        return y
+
+    #Create model, attempting to emulate functionality
+    #of resnet-binary-felix.lua:createModel
+    intermed_channels=128
+
+    # conv1
+    x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
     x = add_common_layers(x)
+        
+    k=512
+    for i in range(10):
+        x = LBCNN_res_block(x, k, intermed_channels)
 
-#     conv2
-    x = layers.MaxPool2D(pool_size=(3, 3), strides=(2, 2), padding='same')(x)
-    for i in range(3):
-        project_shortcut = True if i == 0 else False
-        x = residual_block(x, 128, 256, _project_shortcut=project_shortcut)
-
-    # conv3
-    for i in range(4):
-        # down-sampling is performed by conv3_1, conv4_1, and conv5_1 with a stride of 2
-        strides = (2, 2) if i == 0 else (1, 1)
-        x = residual_block(x, 256, 512, _strides=strides)
-
-    # conv4
-    for i in range(6):
-        strides = (2, 2) if i == 0 else (1, 1)
-        x = residual_block(x, 512, 1024, _strides=strides)
-
-    # conv5
-    for i in range(3):
-        strides = (2, 2) if i == 0 else (1, 1)
-        x = residual_block(x, 1024, 2048, _strides=strides)
-
-    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding="valid")(x)
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.5)(x)
+    x = layers.Dense(k)(x)
+    x = layers.ReLU()(x)
+    x = layers.Dropout(0.5)(x)
     x = layers.Dense(2)(x)
 
     return x
 
 
 def getResNetModel():
-    image_tensor = layers.Input(shape=(img_channels, img_height, img_width))
+    image_tensor = layers.Input(shape=img_shape)
     network_output = residual_network(image_tensor)
       
     model = models.Model(inputs=[image_tensor], outputs=[network_output])
     print(model.summary())
-    model.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = 'adam')
+    adam = optimizers.Adam(lr=0.001)
+    model.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = adam)
     return model
 
 
@@ -254,7 +275,7 @@ def myGetModel():
 #    cNN = keras.layers.Input(shape=(1,80,80))
     cNN = Sequential()
 #    cNN.add(ZeroPadding2D((1,1)))
-    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='relu', input_shape=(1,80,80), 
+    cNN.add(Conv2D(k, kernel_size=kernel_size, activation='relu', input_shape=img_shape, 
                    padding ="same",trainable = False, weights=np.array(getLBCNNWeights(kernel_size, k, sparsity))))
     cNN.add(BatchNormalization())
     cNN.add(Conv2D(1, kernel_size=(1, 1), activation='linear'))
@@ -291,28 +312,25 @@ def myGetModel():
     cNN.add(Dense(num_classes, activation='softmax'))
     
     #sgd = optimizers.SGD(lr=0.1, decay=1e-6)
-    #adam = optimizers.Adam(lr=0.1, beta_1=0.9, beta_2=0.999)
+#    adam = optimizers.Adam(lr=0.001)
     #adam = optimizers.adam(lr=0.01, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-    cNN.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = 'adam')
+    cNN.compile(loss = keras.losses.categorical_crossentropy, metrics = ['accuracy'], optimizer = 'adam')
     return cNN
     
 def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va):
     path = "weights-best.hdf5"
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
-    cNN.fit(x_tr, y_tr, epochs = epochs, batch_size = 100, validation_data = (x_va, y_va),callbacks = [model_checkpoint, early_stopping])
+    cNN.fit(x_tr, y_tr, batch_size=25, epochs = epochs, validation_data = (x_va, y_va),callbacks = [model_checkpoint, early_stopping])
     cNN.load_weights(path)
     return cNN
-    
+   
+#%%
 def runImageClassification(getModel=None,fitModel=None,seed=7):
-    # Fetch data. You may need to be connected to the internet the first time this is done.
-    # After the first time, it should be available in your system. On the off chance this
-    # is not the case on your system and you find yourself repeatedly downloading the data, 
-    # you should change this code so you can load the data once and pass it to this function. 
+    # Fetch data. NB SEED NOT USED
     print("Preparing data...")
     class_names=['healthy','cancer']
         
-    filedir = './data/'
     #fold1tr=[[3,4,5,6],[37,38,12]]
     fold2tr=[[3,4,5,6],[36,37,38]]
     #fold3tr=[[3,4,5,6],[12,36]]
@@ -329,6 +347,7 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     
     # training and validation data
     #%%
+    # Healthy cells:
     for g in fold2tr[0]:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -337,13 +356,10 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         d=list(f[a_group_key])
         data_fold2_tr += d
         labels_fold2_tr += list(np.zeros(len(d)))
-            #%%
-    # we shuffle the data in preparation for removing healthy samples, in order to get 50/50 healthy/cancer cells
-    seed=2
-    random.seed(seed)
-    random.shuffle(data_fold2_tr)
-    nHealthy = len(data_fold2_tr)
+
+    nHealthy_tr = len(data_fold2_tr)
 #%%    
+    # cancer cells:
     for g in fold2tr[1]:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -353,7 +369,7 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         data_fold2_tr += d
         labels_fold2_tr += list(np.ones(len(d)))
         
-        # test data
+    # test data healthy cells
     for g in fold2te[0]:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -362,7 +378,9 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         d=list(f[a_group_key])
         data_fold2_te += d
         labels_fold2_te += list(np.zeros(len(d)))
-            
+        
+        
+    # test data cancer cells         
     for g in fold2te[1]:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -373,31 +391,54 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         labels_fold2_te += list(np.ones(len(d)))
        
     #%%    
-    # Shuffling data and partitioning into training, testing, and validation sets    
-    nSamples=len(labels_fold2_tr)
-    tr_perc=.80
-    va_perc=.20
+    # Converting training and test data lists to numpy arrays   
+    data_fold2_tr =  np.asarray(data_fold2_tr)
+    data_fold2_te = np.asarray(data_fold2_te)
+    # rotation and mirroring of cancer images
+    cancer_data = data_fold2_tr[nHealthy_tr:,]
+    cancer_hz_mirror = np.flip(cancer_data, axis =2)
+    cancer_ver_mirror = np.flip(cancer_data, axis =3)
+    cancer_2x_mirror = np.flip(cancer_ver_mirror, axis = 2)
     
-    #removing healthy cells so that we have 50/50 healthy/sick cells
-    data_fold2_tr = data_fold2_tr[(2*nHealthy - nSamples):]
-    labels_fold2_tr = labels_fold2_tr[(2*nHealthy - nSamples):]
-        
-    seed = 1
-    random.seed(seed)
-    random.shuffle(labels_fold2_tr)
-    random.seed(seed)
-    random.shuffle(data_fold2_tr)
+    cancer_data = np.append(cancer_data, cancer_hz_mirror, axis = 0)
+    cancer_data = np.append(cancer_data, cancer_ver_mirror, axis = 0)
+    cancer_data = np.append(cancer_data, cancer_2x_mirror, axis = 0)
+    cancer_data = np.append(cancer_data, np.rot90(cancer_data,k=1,axes=(2,3)), axis = 0)
+    
+    # rotation and mirroring of healthy images
+    healthy_data = data_fold2_tr[0:(len(data_fold2_tr) -nHealthy_tr),]
+    healthy_hz_mirror = np.flip(healthy_data, axis =2)
+    healthy_ver_mirror = np.flip(healthy_data, axis =3)
+    healthy_2x_mirror = np.flip(healthy_ver_mirror, axis = 2)
+    
+    healthy_data = np.append(healthy_data, healthy_hz_mirror, axis = 0)
+    healthy_data = np.append(healthy_data, healthy_ver_mirror, axis = 0)
+    healthy_data = np.append(healthy_data, healthy_2x_mirror, axis = 0)
+    healthy_data = np.append(healthy_data, np.rot90(healthy_data,k=1,axes=(2,3)), axis = 0)
+    
+    sick_labels = np.ones(len(cancer_data))
+    healthy_labels = np.zeros(len(healthy_data))
+    fold2_aug_tr = np.append(healthy_data, cancer_data, axis = 0)
+    fold2_aug_tr_labels = np.append(healthy_labels,sick_labels)
+    
+    # we shuffle the training data and labels
+    random.seed(1)
+    np.random.shuffle(fold2_aug_tr)
+    random.seed(1)
+    np.random.shuffle(fold2_aug_tr_labels)
+
+    tr_perc=.80
     
     # we update the number of samples after removing healty cells
-    nSamples = len(data_fold2_tr)
-
+    nSamples=len(fold2_aug_tr)
     tr=round(nSamples*tr_perc)
-        
-    x_tr = np.asarray(data_fold2_tr[0:tr])
-    x_va = np.asarray(data_fold2_tr[tr:nSamples])
+    
+    x_tr = fold2_aug_tr[0:tr,]
+    x_va = fold2_aug_tr[tr:,]
     x_te = np.asarray(data_fold2_te)
-    y_tr = np.asarray(labels_fold2_tr[0:tr])
-    y_va = np.asarray(labels_fold2_tr[tr:nSamples])
+    
+    y_tr = fold2_aug_tr_labels[0:tr]
+    y_va = fold2_aug_tr_labels[tr:]
     y_te = np.asarray(labels_fold2_te)
 
     # converting vectors to numpy arrays
@@ -411,6 +452,11 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
     x_va = x_va.astype('float32')
     x_te = x_te.astype('float32')
     
+    # change order to channels LAST (tensorflow default)
+    x_te = np.moveaxis(x_te,1,3)
+    x_va = np.moveaxis(x_va,1,3)
+    x_tr = np.moveaxis(x_tr,1,3)
+    
 #%%
     for x in range (0,len(x_tr)):
         x_tr[x] = (x_tr[x]-np.mean(x_tr[x]))/ np.std(x_tr[x])
@@ -420,9 +466,7 @@ def runImageClassification(getModel=None,fitModel=None,seed=7):
         
     for x in range (0,len(x_te)):
         x_te[x] = (x_te[x]-np.mean(x_te[x]))/ np.std(x_te[x])
-#    x_tr /= 255
-#    x_va /= 255
-#    x_te /= 255
+        
         
     #%%
     # Create model 
