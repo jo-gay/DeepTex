@@ -399,7 +399,9 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         '''
         h_mirror = np.flip(trainData, axis=2)
         v_mirror = np.flip(trainData, axis=3)
-        b_mirror = np.flip(trainData, axis=2)
+        b_mirror = np.flip(v_mirror, axis=2)
+        
+        
         
         trainData = np.append(trainData, h_mirror, axis = 0)
         trainData = np.append(trainData, v_mirror, axis = 0)
