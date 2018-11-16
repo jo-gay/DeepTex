@@ -13,6 +13,7 @@ from keras.layers import Dense, Dropout, Flatten, BatchNormalization
 from keras.layers import Conv2D, MaxPooling2D, ZeroPadding2D
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import EarlyStopping
+from keras.callbacks import LearningRateScheduler
 from keras import optimizers
 from keras.engine.topology import Layer
 from sklearn.metrics import confusion_matrix
@@ -29,7 +30,6 @@ def main(GPU_NUM):
 
     preds=[int(x>0.5) for x in res]
     #truth=np.argmax(res[0], axis=1)
-    
     print(confusion_matrix(y_te, preds))
 
 #%%
@@ -52,6 +52,7 @@ def doInitTasks(GPU_NUM):
         config.gpu_options.visible_device_list = str(GPU_NUM)
     else:
         config = tf.ConfigProto()
+
 
     sess = tf.Session(config=config)
     K.set_session(sess)
@@ -256,7 +257,7 @@ def residual_network(x):
         
     #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
     #to intermed_channels in the linear combination layer
-    k=512
+    k=256
     for i in range(10):
         x = LBCNN_res_block(x, k, intermed_channels)
 
@@ -264,7 +265,8 @@ def residual_network(x):
     
     #Average pooling over 5x5 non-overlapping regions
     x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
-    
+    x = layers.Conv2D(2, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = add_common_layers(x)
     #Flatten and feed into a dense layer
     x = layers.Flatten()(x)
     x = layers.Dropout(0.5)(x)
@@ -344,12 +346,31 @@ def myGetModel():
     return cNN
 '''
 #%%
+def step_decay_schedule(initial_lr, nr_training, batch_size):
+    '''
+    Wrapper function to create a LearningRateScheduler with step decay schedule.
+    '''
     
+    def schedule(epoch):
+        decay = 1
+        if(epoch*(nr_training/batch_size) >= 3000):
+            decay = decay /10
+        if(epoch*(nr_training/batch_size) >= 6000):
+            decay = decay /10
+        print('learning rate: %f' %(initial_lr*decay))    
+        return initial_lr * decay
+    return LearningRateScheduler(schedule)
+
+
+
 def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va):
     path = "weights-best.hdf5"
+    nr_training = len(x_tr)
+    batch_size = 20
+    lr_sched = step_decay_schedule( 0.01, nr_training, batch_size)
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
-    cNN.fit(x_tr, y_tr, batch_size=20, epochs = epochs, validation_data = (x_va, y_va),callbacks = [model_checkpoint, early_stopping])
+    cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
     cNN.load_weights(path)
     return cNN
    
@@ -449,7 +470,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
     
     
 #%%
-def runImageClassification(foldNr=2, seed=None):
+def runImageClassification(foldNr=2, eval_model=0, seed=None):
     print("Preprocessing data...")
     x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=foldNr, valPercent=0.2, 
                                                   augment=True, seed=seed, 
@@ -458,13 +479,22 @@ def runImageClassification(foldNr=2, seed=None):
     print("Creating model...")
     model=getResNetModel()
     
+    if(eval_model is 1):
+        print("evaluating model on existing weights.")
+        results = model.predict(x_te)
+        score = model.evaluate(x_te, y_te, verbose=0)
+        print('Test accuracy:', score[1])
+            
+    
     # Fit model
     print("Fitting model...")
-    epochs = 50
+    epochs = 10
     model=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va)
 
     # Evaluate on test data
     print("Evaluating model...")
+    path_best = "weights_01.hdf5"
+    model.load_weights(path_best)
     results = model.predict(x_te)
     score = model.evaluate(x_te, y_te, verbose=0)
     print('Test accuracy:', score[1])
