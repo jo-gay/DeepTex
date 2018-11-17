@@ -22,15 +22,41 @@ from sklearn.model_selection import train_test_split
 filedir = './data/'
 
 #%% MAIN SCRIPT
-def main(GPU_NUM):
+def main(GPU_NUM, fastMode=False):
     
     sess = doInitTasks(GPU_NUM)
+    confusionMat=[[0,0],[0,0]]
+    overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'NumTestPts':0}
+    folds=trainfolds.keys()
+    if(fastMode):
+        folds=[1,]
+    
     with sess.as_default():
-        y_te, res = runImageClassification(foldNr=2)
+        for f in folds:
+            print("\nStarting training with fold number %d of %d"%(f, len(folds)))
+            y_te, res = runImageClassification(foldNr=f, fastMode=fastMode)
+            preds=[int(x>0.5) for x in res]
+            confusionMat+=confusion_matrix(y_te, preds)
 
-    preds=[int(x>0.5) for x in res]
-    #truth=np.argmax(res[0], axis=1)
-    print(confusion_matrix(y_te, preds))
+    #Now we have the total confusion matrix for all folds. Calculate measures from that.
+    overallResults['NumTestPts']=sum(sum(confusionMat))
+    overallResults['Accuracy'] = (confusionMat[0][0] + confusionMat[1][1])/overallResults['NumTestPts']
+    overallResults['Precision'] = confusionMat[0][0]/(confusionMat[0][0]+confusionMat[0][1])
+    overallResults['Recall'] = confusionMat[0][0]/(confusionMat[0][0]+confusionMat[1][0])
+    overallResults['F1-Score']=2*overallResults['Precision']*overallResults['Recall'] / (overallResults['Precision'] + overallResults['Recall'])
+    
+    print("\n******** Combined results over %d folds ************"%len(folds))
+    for k, v in overallResults.items():
+        if(k == 'NumTestPts'):
+            print('%12s: %d'%(k, v))
+        else:
+            print('%12s: %2.4f'%(k, v))
+
+    print('Confusion Matrix:')
+    for row in confusionMat:
+        print(' '.join(map(str,row)))
+    print("********     End of combined results    ************")
+
 
 #%%
     
@@ -148,7 +174,7 @@ img_shape=(img_height, img_width, img_channels)
 cardinality = 1
 
 
-def residual_network(x):
+def residual_network(x, fastMode=False):
     """
     ResNeXt by default. For ResNet set `cardinality` = 1 above.
     
@@ -250,6 +276,8 @@ def residual_network(x):
        of resnet-binary-felix.lua:createModel
     '''
     intermed_channels=128
+    if(fastMode):
+        itermed_channels=4
 
     #Begin with (3x3) conv layer, creating intermediate_channels channels
     x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
@@ -258,6 +286,8 @@ def residual_network(x):
     #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
     #to intermed_channels in the linear combination layer
     k=256
+    if(fastMode):
+        k=8
     for i in range(10):
         x = LBCNN_res_block(x, k, intermed_channels)
 
@@ -280,9 +310,9 @@ def residual_network(x):
     return x
 
 
-def getResNetModel():
+def getResNetModel(fastMode=False):
     image_tensor = layers.Input(shape=img_shape)
-    network_output = residual_network(image_tensor)
+    network_output = residual_network(image_tensor, fastMode)
       
     model = models.Model(inputs=[image_tensor], outputs=[network_output])
     print(model.summary())
@@ -362,7 +392,7 @@ def step_decay_schedule(initial_lr, nr_training, batch_size):
     return LearningRateScheduler(schedule)
 
 
-
+    
 def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va):
     path = "weights-best.hdf5"
     nr_training = len(x_tr)
@@ -470,31 +500,33 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
     
     
 #%%
-def runImageClassification(foldNr=2, eval_model=0, seed=None):
+def runImageClassification(foldNr=2, eval_model=0, seed=None, fastMode=False):
     print("Preprocessing data...")
     x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=foldNr, valPercent=0.2, 
-                                                  augment=True, seed=seed, 
+                                                  augment=not(fastMode), seed=seed, 
                                                   changeOrder=True, normalize=True)
     # Create model 
     print("Creating model...")
-    model=getResNetModel()
+    model=getResNetModel(fastMode)
     
-    if(eval_model is 1):
+    if(eval_model == 1):
         print("evaluating model on existing weights.")
+        path_best = "weights_01.hdf5"
+        model.load_weights(path_best)
         results = model.predict(x_te)
         score = model.evaluate(x_te, y_te, verbose=0)
         print('Test accuracy:', score[1])
-            
-    
+        return y_te, results
+
     # Fit model
     print("Fitting model...")
-    epochs = 10
+    epochs = 20
+    if(fastMode):
+        epochs=5
     model=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va)
 
     # Evaluate on test data
     print("Evaluating model...")
-    path_best = "weights_01.hdf5"
-    model.load_weights(path_best)
     results = model.predict(x_te)
     score = model.evaluate(x_te, y_te, verbose=0)
     print('Test accuracy:', score[1])
@@ -509,8 +541,12 @@ if __name__ == "__main__":
     else:
         print("Using CPU only")
         GPU_NUM=None
+    fastMode=False
+    if len(sys.argv) > 2:
+        fastMode = True
+        print("**** Fast mode: Using fold 1 only, no data aug, epochs=5, intermed_channels=4, k=8 ****")
 
-    main(GPU_NUM)
+    main(GPU_NUM, fastMode)
     
 
 
