@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import keras
-import h5py, sys
+import h5py, sys, pickle
 import random
 import tensorflow as tf
 from keras.utils import np_utils
@@ -26,10 +26,10 @@ def main(GPU_NUM, fastMode=False):
     
     sess = doInitTasks(GPU_NUM)
     confusionMat=[[0,0],[0,0]]
-    overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'NumTestPts':0}
+    overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'NumTestPts':0, 'Confusion':[]}
     folds=trainfolds.keys()
     if(fastMode):
-        folds=[1,]
+        folds=[2,]
     
     with sess.as_default():
         for f in folds:
@@ -44,18 +44,21 @@ def main(GPU_NUM, fastMode=False):
     overallResults['Precision'] = confusionMat[0][0]/(confusionMat[0][0]+confusionMat[0][1])
     overallResults['Recall'] = confusionMat[0][0]/(confusionMat[0][0]+confusionMat[1][0])
     overallResults['F1-Score']=2*overallResults['Precision']*overallResults['Recall'] / (overallResults['Precision'] + overallResults['Recall'])
+    overallResults['Confusion']=confusionMat
     
     print("\n******** Combined results over %d folds ************"%len(folds))
     for k, v in overallResults.items():
         if(k == 'NumTestPts'):
             print('%12s: %d'%(k, v))
-        else:
+        elif(k != 'Confusion'):
             print('%12s: %2.4f'%(k, v))
 
     print('Confusion Matrix:')
     for row in confusionMat:
-        print(' '.join(map(str,row)))
+        print('\t '.join(map(str,row)))
     print("********     End of combined results    ************")
+    with open('savedResults.txt', 'w') as outfile:
+        outfile.write(str(overallResults)+'\n')
 
 
 #%%
@@ -97,7 +100,7 @@ def doInitTasks(GPU_NUM):
         
     return sess
 
-
+''' NOT IN USE
 class LBCNN(Layer):
 
     def __init__(self, output_dim, **kwargs):
@@ -117,7 +120,7 @@ class LBCNN(Layer):
 
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
-
+'''
     
 def getLBCNNWeights(size, count, kSparsity, channels=1):
     bias=np.zeros(count)
@@ -173,15 +176,20 @@ img_shape=(img_height, img_width, img_channels)
 
 cardinality = 1
 
-
-def residual_network(x, fastMode=False):
+class residual_network:
     """
     ResNeXt by default. For ResNet set `cardinality` = 1 above.
     
     """
-    def add_common_layers(y):
+    def __init__(self, fastMode=False):
+        self.fastMode=fastMode
+    
+    def add_common_layers(self, y, leaky=True):
         y = layers.BatchNormalization()(y)
-        y = layers.LeakyReLU()(y)
+        if(leaky):
+            y = layers.LeakyReLU()(y)
+        else:
+            y = layers.ReLU()(y)
 
         return y
 
@@ -246,7 +254,7 @@ def residual_network(x, fastMode=False):
     '''
 
     #Added function to use LBCNN layer instead of standard CNN
-    def lb_convolution(y, nb_filters, nb_channels, _strides, sparsity=0.5):
+    def lb_convolution(self, y, nb_filters, nb_channels, _strides, sparsity=0.9):
         kernel_size=(3,3)
         return layers.Conv2D(nb_filters, kernel_size=kernel_size, strides=_strides, 
                               weights=getLBCNNWeights(kernel_size, nb_filters, sparsity, nb_channels), 
@@ -254,7 +262,7 @@ def residual_network(x, fastMode=False):
 
     #Added function to define LBCNN block with residual connection attempting to emulate functionality
     #of resnet-binary-felix.lua:createModel.basicBlock
-    def LBCNN_res_block(y, nb_filters, nb_channels, _strides=(1, 1)):
+    def LBCNN_res_block(self, y, nb_filters, nb_channels, _strides=(1, 1), leaky=True):
         """
         Our network consists of a stack of LBCNN blocks, each with a residual connection.
         An LBCNN block is a 3x3 convolutional layer with nb_filters channels, with non-trainable weights,
@@ -264,62 +272,107 @@ def residual_network(x, fastMode=False):
         shortcut = y
 
         y = layers.BatchNormalization()(y)
-        y = lb_convolution(y, nb_filters, nb_channels, _strides=_strides)
-        y = layers.LeakyReLU()(y)
+        y = self.lb_convolution(y, nb_filters, nb_channels, _strides=_strides)
+        if(leaky):
+            y = layers.LeakyReLU()(y)
+        else:
+            y = layers.ReLU()(y)
+
 
         y = layers.Conv2D(nb_channels, kernel_size=(1, 1), strides=(1, 1), activation='linear')(y)
         y = layers.add([shortcut, y])
 
         return y
 
-    '''Create model, attempting to emulate functionality
-       of resnet-binary-felix.lua:createModel
-    '''
-    intermed_channels=128
-    if(fastMode):
-        itermed_channels=4
+    def build_juefei(self, x, nlayers=20):
+        '''Create model, attempting to emulate architecture
+           of resnet-binary-felix.lua:createModel as closely as possible
+        '''
+        intermed_channels=128
+        if(self.fastMode):
+            intermed_channels=4
+    
+        #Begin with (3x3) conv layer, creating intermediate_channels channels
+        x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+        x = self.add_common_layers(x, False)
+            
+        #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
+        #to intermed_channels in the linear combination layer
+        k=512
+        if(self.fastMode):
+            k=8
+        for i in range(nlayers):
+            x = self.LBCNN_res_block(x, k, intermed_channels, leaky=False)
 
-    #Begin with (3x3) conv layer, creating intermediate_channels channels
-    x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-    x = add_common_layers(x)
+        #Extra normalisation layer not found in Juefei, but for our data it appears
+        #that the model fails without it.
+        x = layers.BatchNormalization()(x)
+    
+        #Average pooling over 5x5 non-overlapping regions
+        x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
+        #Flatten and feed into a dense layer
+        x = layers.Flatten()(x)
+        x = layers.Dropout(0.5)(x)
+        x = layers.Dense(k)(x)
+        x = layers.ReLU()(x)
+        x = layers.Dropout(0.5)(x)
         
-    #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
-    #to intermed_channels in the linear combination layer
-    k=256
-    if(fastMode):
-        k=8
-    for i in range(10):
-        x = LBCNN_res_block(x, k, intermed_channels)
-
-    x = layers.BatchNormalization()(x)
+        #Output layer
+        x = layers.Dense(1, activation='sigmoid')(x)
     
-    #Average pooling over 5x5 non-overlapping regions
-    x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
-    x = layers.Conv2D(2, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-    x = add_common_layers(x)
-    #Flatten and feed into a dense layer
-    x = layers.Flatten()(x)
-    x = layers.Dropout(0.5)(x)
-    x = layers.Dense(k)(x)
-    x = layers.LeakyReLU()(x)
-    x = layers.Dropout(0.5)(x)
+        return x
+
+#%%    
+    def build_modified_juefei(self, x):
+        '''Build a modified version of juefei-xu, to get best performance with
+        our dataset '''
+        intermed_channels=128
+        if(self.fastMode):
+            intermed_channels=4
     
-    #Output layer
-    x = layers.Dense(1, activation='sigmoid')(x)
-
-    return x
-
+        #Begin with (3x3) conv layer, creating intermediate_channels channels
+        x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+        x = self.add_common_layers(x)
+            
+        #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
+        #to intermed_channels in the linear combination layer
+        k=256
+        if(self.fastMode):
+            k=8
+        for i in range(10):
+            x = self.LBCNN_res_block(x, k, intermed_channels)
+    
+        x = layers.BatchNormalization()(x)
+        
+        #Average pooling over 5x5 non-overlapping regions
+        x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
+        x = layers.Conv2D(2, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+        x = self.add_common_layers(x)
+        #Flatten and feed into a dense layer
+        x = layers.Flatten()(x)
+        x = layers.Dropout(0.5)(x)
+        x = layers.Dense(k)(x)
+        x = layers.LeakyReLU()(x)
+        x = layers.Dropout(0.5)(x)
+        
+        #Output layer
+        x = layers.Dense(1, activation='sigmoid')(x)
+    
+        return x
+        
+#%%   
 
 def getResNetModel(fastMode=False):
     image_tensor = layers.Input(shape=img_shape)
-    network_output = residual_network(image_tensor, fastMode)
+    network = residual_network(fastMode=fastMode)
+    network_output = network.build_juefei(x=image_tensor)
       
     model = models.Model(inputs=[image_tensor], outputs=[network_output])
     print(model.summary())
 #    adam = optimizers.Adam(lr=0.0001, beta_1=0.9, decay=0.0001)
-    #adam = optimizers.Adam(lr=0.0001)
-    model.compile(loss = keras.losses.binary_crossentropy, metrics = ['accuracy'], optimizer = 'adam')
-    #model.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = adam)
+    
+    adam = optimizers.Adam()
+    model.compile(loss = keras.losses.binary_crossentropy, metrics = ['accuracy'], optimizer = adam)
     return model
 
 
@@ -397,7 +450,7 @@ def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va):
     path = "weights-best.hdf5"
     nr_training = len(x_tr)
     batch_size = 20
-    lr_sched = step_decay_schedule( 0.01, nr_training, batch_size)
+    lr_sched = step_decay_schedule( 0.001, nr_training, batch_size)
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
     cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
