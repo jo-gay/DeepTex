@@ -203,8 +203,8 @@ if __name__ == '__main__':
     
     folds = list(trainfolds.keys())
     if(fastMode):
-        folds=[1,3]
-        Nepochs=10
+        folds=[2,]
+        Nepochs=2
 
     valAcc=0
     confusionMat=[[0,0],[0,0]]

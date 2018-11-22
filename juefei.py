@@ -13,7 +13,7 @@ from keras import optimizers
 #%%
 
 """
-Code from https://gist.github.com/mjdietzx/0cb95922aac14d446a6530f87b3a04ce
+Based on code from https://gist.github.com/mjdietzx/0cb95922aac14d446a6530f87b3a04ce
 
 Clean and simple Keras implementation of network architectures described in:
     - (ResNet-50) [Deep Residual Learning for Image Recognition](https://arxiv.org/pdf/1512.03385.pdf).
@@ -26,7 +26,6 @@ Python 3.
 #
 # image dimensions
 #
-
 img_height = 80
 img_width = 80
 img_channels = 1
@@ -37,11 +36,11 @@ class juefei:
         self.kSparsity=sparsity
         self.nLayers=nLayers
         if(fastMode):
-            self.intermed_channels=32
+            self.intermed_channels=8
         else:
             self.intermed_channels=intermed_channels
         if(fastMode):
-            self.k=16
+            self.k=4
         else:
             self.k=k
 
