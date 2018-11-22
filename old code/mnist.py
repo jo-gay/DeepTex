@@ -1,12 +1,12 @@
 import numpy as np
-import h5py
+#import h5py
 import scipy.misc
 import sys
 sys.path.append('../')
 from utils import getGrid, rotate_grid_2D
-from first_model_cnn import loadData
-from sklearn.model_selection import train_test_split
-filedir = './data/'
+#from first_model_cnn import loadData
+#from sklearn.model_selection import train_test_split
+#filedir = './data/'
 
 
 def loadMnist(mode):
@@ -62,7 +62,7 @@ def linear_interpolation_2D(input_array, indices, outside_val=0, boundary_correc
     if boundary_correction:
         output[inds_out_of_range] = 0
 
-    return outputs
+    return output
     
 def loadMnistRot():
     def load_and_make_list(mode):

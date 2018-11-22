@@ -363,157 +363,44 @@ def step_decay_schedule(initial_lr, nr_training, batch_size):
 
 
 
-def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va, batch_size):
-    path = "weights-best.hdf5"
+def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va, batch_size, path):
     nr_training = len(x_tr)
-    #batch_size = batchS
     lr_sched = step_decay_schedule( 0.01, nr_training, batch_size)
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
-    cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
+    mHist=cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
     cNN.load_weights(path)
-    return cNN
+    return cNN, mHist
    
-#%%
-
-
-'''For a given fold, load the training and testing data. Limit the number
-of healthy cells in the training data so that there are the same number of
-healthy cells as cancer cells 
-'''
-def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=True, normalize=True):
-    if(not seed is None):
-        set.seed(seed)
-
-    trainGlasses=trainfolds[foldNr]
-    testGlasses=testfolds[foldNr]
-    
-    healthyData=[]
-    cancerData=[]
-    for g in trainGlasses['cancer']:
-        filename = filedir+'glass'+str(g)+'.hdf5'
-        f = h5py.File(filename, 'r')
-        
-        a_group_key = list(f.keys())[0]
-        d=list(f[a_group_key])
-        cancerData += d
-    for g in trainGlasses['healthy']:
-        filename = filedir+'glass'+str(g)+'.hdf5'
-        f = h5py.File(filename, 'r')
-        
-        a_group_key = list(f.keys())[0]
-        d=list(f[a_group_key])
-        healthyData += d
-    
-    if(len(cancerData)<len(healthyData)):
-        healthyDataIdx = np.random.choice(len(healthyData), size=len(cancerData), replace=False)
-        healthyData=np.asarray(healthyData)[healthyDataIdx]
-    elif(len(healthyData)<len(cancerData)):
-        cancerDataIdx = np.random.choice(len(cancerData), size=len(healthyData), replace=False)
-        cancerData=np.asarray(cancerData)[cancerDataIdx]
-    
-    trainData=np.append(healthyData, cancerData, axis=0).astype(np.float32)
-    trainLabels=np.append(np.zeros(len(healthyData)), np.ones(len(cancerData)))
-
-    if(augment):
-        '''Augment the training data with mirrored and rotated versions. 
-        '''
-        h_mirror = np.flip(trainData, axis=2)
-        v_mirror = np.flip(trainData, axis=3)
-        b_mirror = np.flip(v_mirror, axis=2)
-        
-        
-        
-        trainData = np.append(trainData, h_mirror, axis = 0)
-        trainData = np.append(trainData, v_mirror, axis = 0)
-        trainData = np.append(trainData, b_mirror, axis = 0)
-        
-        trainData = np.append(trainData, np.rot90(trainData,k=1,axes=(2,3)), axis = 0)
-        trainLabels=np.tile(trainLabels, 8)
-
-
-    healthyData=[]
-    cancerData=[]
-    for g in testGlasses['cancer']:
-        filename = filedir+'glass'+str(g)+'.hdf5'
-        f = h5py.File(filename, 'r')
-        
-        a_group_key = list(f.keys())[0]
-        d=list(f[a_group_key])
-        cancerData += d
-    for g in testGlasses['healthy']:
-        filename = filedir+'glass'+str(g)+'.hdf5'
-        f = h5py.File(filename, 'r')
-        
-        a_group_key = list(f.keys())[0]
-        d=list(f[a_group_key])
-        healthyData += d
-        
-    x_te=np.append(healthyData, cancerData, axis=0).astype(np.float32)
-    y_te=np.append(np.zeros(len(healthyData)), np.ones(len(cancerData)))
-
-    x_tr, x_va, y_tr, y_va = train_test_split(trainData, trainLabels, test_size=valPercent, random_state=seed)
-
-    if(normalize):
-        # standardize so that each image has mean 0 and std 1
-        x_tr = np.asarray([(x_tr[x]-np.mean(x_tr[x]))/np.std(x_tr[x]) for x in range(len(x_tr))])
-        x_va = np.asarray([(x_va[x]-np.mean(x_va[x]))/np.std(x_va[x]) for x in range(len(x_va))])
-        x_te = np.asarray([(x_te[x]-np.mean(x_te[x]))/np.std(x_te[x]) for x in range(len(x_te))])
-        
-    if(changeOrder):
-        # change order to channels LAST (tensorflow default)
-        x_tr = np.moveaxis(x_tr,1,3)
-        x_va = np.moveaxis(x_va,1,3)
-        x_te = np.moveaxis(x_te,1,3)
-        
-    if(False):
-        x_tr = x_tr[0:200,]
-        x_va = x_va[0:200,]
-        x_te = x_te[0:200,]
-        y_tr = y_tr[0:200,]
-        y_va = y_va[0:200,]
-        y_te = y_te[0:200,]
-            
-    return x_tr, x_va, x_te, y_tr, y_va, y_te
-    
     
 #%%
-def runImageClassification(foldNr=2, eval_model=0, seed=None, batch_size = 20, num_epochs = 1, ):
+def runImageClassification(x_tr, y_tr, x_va, y_va, x_te, y_te, eval_model=0, batch_size=20, num_epochs=1):
     
-    
-    print("Preprocessing data...")
-    x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=foldNr, valPercent=0.2, 
-                                                  augment=True, seed=seed, 
-                                                  changeOrder=True, normalize=True)
-   
     # Create model 
     print("Creating model...")
     model=getResNetModel()
     
-    if(eval_model is 1):
+    if(eval_model == 1):
         print("evaluating model on existing weights.")
         results = model.predict(x_te)
         score = model.evaluate(x_te, y_te, verbose=0)
         print('Test accuracy:', score[1])
-            
     
     # Fit model
     print("Fitting model...")
     epochs = num_epochs
-    model=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va, batch_size)
+    path_best = "weights-best.hdf5"
+    model, mHist=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va, batch_size, path_best)
 
     # Evaluate on test data
     print("Evaluating model...")
-    path_best = "weights-best.hdf5"
     model.load_weights(path_best)
     results = model.predict(x_te)
     score = model.evaluate(x_te, y_te, verbose=0)
     print('Test accuracy:', score[1])
-    
-    print('results data type:')
-    print(type(results))
 
-    return y_te, results
+    preds=[int(x>0.5) for x in results]
+    return y_te, preds, mHist
 
 
 if __name__ == "__main__":

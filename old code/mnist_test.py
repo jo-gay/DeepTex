@@ -6,7 +6,7 @@ from torch import optim
 import numpy as np
 from torch.autograd import Variable
 import random
-from mnist import loadData, loadMnistRot, random_rotation, linear_interpolation_2D
+from mnist import loadMnistRot, random_rotation, linear_interpolation_2D
 
 import sys
 sys.path.append('../') #Import
