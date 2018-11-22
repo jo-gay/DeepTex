@@ -250,6 +250,6 @@ def run(gpu_no=0, fold_nr=2, num_epochs = 2, batch_size=20):
     pred = test(net, test_set[:], 'test', returnval = 1)
     #print('Test', 'acc:', pred)
 
-    return y_te, pred 
+    return y_te[:len(pred)], pred 
 
 #run(gpu_no = False)
