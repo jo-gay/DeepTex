@@ -3,7 +3,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import keras
-import h5py, sys, pickle
+import h5py, sys
 import random
 import tensorflow as tf
 from keras.utils import np_utils
@@ -22,44 +22,15 @@ from sklearn.model_selection import train_test_split
 filedir = './data/'
 
 #%% MAIN SCRIPT
-def main(GPU_NUM, fastMode=False):
+def main(GPU_NUM):
     
     sess = doInitTasks(GPU_NUM)
-    confusionMat=[[0,0],[0,0]]
-    overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'NumTestPts':0, 'Confusion':[]}
-    folds=trainfolds.keys()
-    if(fastMode):
-        folds=[2,]
-    
     with sess.as_default():
-        for f in folds:
-            print("\nStarting training with fold number %d of %d"%(f, len(folds)))
-            y_te, res = runImageClassification(foldNr=f, fastMode=fastMode)
-            preds=[int(x>0.5) for x in res]
-            confusionMat+=confusion_matrix(y_te, preds)
+        y_te, res = runImageClassification(foldNr=2)
 
-    #Now we have the total confusion matrix for all folds. Calculate measures from that.
-    overallResults['NumTestPts']=sum(sum(confusionMat))
-    overallResults['Accuracy'] = (confusionMat[0][0] + confusionMat[1][1])/overallResults['NumTestPts']
-    overallResults['Precision'] = confusionMat[0][0]/(confusionMat[0][0]+confusionMat[0][1])
-    overallResults['Recall'] = confusionMat[0][0]/(confusionMat[0][0]+confusionMat[1][0])
-    overallResults['F1-Score']=2*overallResults['Precision']*overallResults['Recall'] / (overallResults['Precision'] + overallResults['Recall'])
-    overallResults['Confusion']=confusionMat
-    
-    print("\n******** Combined results over %d folds ************"%len(folds))
-    for k, v in overallResults.items():
-        if(k == 'NumTestPts'):
-            print('%12s: %d'%(k, v))
-        elif(k != 'Confusion'):
-            print('%12s: %2.4f'%(k, v))
-
-    print('Confusion Matrix:')
-    for row in confusionMat:
-        print('\t '.join(map(str,row)))
-    print("********     End of combined results    ************")
-    with open('savedResults.txt', 'w') as outfile:
-        outfile.write(str(overallResults)+'\n')
-
+    preds=[int(x>0.5) for x in res]
+    #truth=np.argmax(res[0], axis=1)
+    print(confusion_matrix(y_te, preds))
 
 #%%
     
@@ -100,7 +71,7 @@ def doInitTasks(GPU_NUM):
         
     return sess
 
-''' NOT IN USE
+
 class LBCNN(Layer):
 
     def __init__(self, output_dim, **kwargs):
@@ -120,7 +91,7 @@ class LBCNN(Layer):
 
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
-'''
+
     
 def getLBCNNWeights(size, count, kSparsity, channels=1):
     bias=np.zeros(count)
@@ -176,20 +147,15 @@ img_shape=(img_height, img_width, img_channels)
 
 cardinality = 1
 
-class residual_network:
+
+def residual_network(x):
     """
     ResNeXt by default. For ResNet set `cardinality` = 1 above.
     
     """
-    def __init__(self, fastMode=False):
-        self.fastMode=fastMode
-    
-    def add_common_layers(self, y, leaky=True):
+    def add_common_layers(y):
         y = layers.BatchNormalization()(y)
-        if(leaky):
-            y = layers.LeakyReLU()(y)
-        else:
-            y = layers.ReLU()(y)
+        y = layers.LeakyReLU()(y)
 
         return y
 
@@ -254,7 +220,7 @@ class residual_network:
     '''
 
     #Added function to use LBCNN layer instead of standard CNN
-    def lb_convolution(self, y, nb_filters, nb_channels, _strides, sparsity=0.9):
+    def lb_convolution(y, nb_filters, nb_channels, _strides, sparsity=0.5):
         kernel_size=(3,3)
         return layers.Conv2D(nb_filters, kernel_size=kernel_size, strides=_strides, 
                               weights=getLBCNNWeights(kernel_size, nb_filters, sparsity, nb_channels), 
@@ -262,7 +228,7 @@ class residual_network:
 
     #Added function to define LBCNN block with residual connection attempting to emulate functionality
     #of resnet-binary-felix.lua:createModel.basicBlock
-    def LBCNN_res_block(self, y, nb_filters, nb_channels, _strides=(1, 1), leaky=True):
+    def LBCNN_res_block(y, nb_filters, nb_channels, _strides=(1, 1)):
         """
         Our network consists of a stack of LBCNN blocks, each with a residual connection.
         An LBCNN block is a 3x3 convolutional layer with nb_filters channels, with non-trainable weights,
@@ -272,110 +238,61 @@ class residual_network:
         shortcut = y
 
         y = layers.BatchNormalization()(y)
-        y = self.lb_convolution(y, nb_filters, nb_channels, _strides=_strides)
-        if(leaky):
-            y = layers.LeakyReLU()(y)
-        else:
-            y = layers.ReLU()(y)
-
+        y = lb_convolution(y, nb_filters, nb_channels, _strides=_strides)
+        y = layers.LeakyReLU()(y)
 
         y = layers.Conv2D(nb_channels, kernel_size=(1, 1), strides=(1, 1), activation='linear')(y)
         y = layers.add([shortcut, y])
 
         return y
 
-    def build_juefei(self, x, nlayers=20):
-        '''Create model, attempting to emulate architecture
-           of resnet-binary-felix.lua:createModel as closely as possible
-        '''
-        intermed_channels=128
-        if(self.fastMode):
-            intermed_channels=4
-    
-        #Begin with (3x3) conv layer, creating intermediate_channels channels
-        x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-        x = self.add_common_layers(x, False)
-            
-        #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
-        #to intermed_channels in the linear combination layer
-        k=512
-        if(self.fastMode):
-            k=8
-        for i in range(nlayers):
-            x = self.LBCNN_res_block(x, k, intermed_channels, leaky=False)
+    '''Create model, attempting to emulate functionality
+       of resnet-binary-felix.lua:createModel
+    '''
+    intermed_channels=1
 
-        #Extra normalisation layer not found in Juefei, but for our data it appears
-        #that the model fails without it.
-        x = layers.BatchNormalization()(x)
-    
-        #Average pooling over 5x5 non-overlapping regions
-        x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
-        #Flatten and feed into a dense layer
-        x = layers.Flatten()(x)
-        x = layers.Dropout(0.5)(x)
-        x = layers.Dense(k)(x)
-        x = layers.ReLU()(x)
-        x = layers.Dropout(0.5)(x)
+    #Begin with (3x3) conv layer, creating intermediate_channels channels
+    x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = add_common_layers(x)
         
-        #Output layer
-        x = layers.Dense(1, activation='sigmoid')(x)
-    
-        return x
+    #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
+    #to intermed_channels in the linear combination layer
+    k=5
+    for i in range(1):
+        x = LBCNN_res_block(x, k, intermed_channels)
 
-#%%    
-    def build_modified_juefei(self, x):
-        '''Build a modified version of juefei-xu, to get best performance with
-        our dataset '''
-        intermed_channels=128
-        if(self.fastMode):
-            intermed_channels=4
+    x = layers.BatchNormalization()(x)
     
-        #Begin with (3x3) conv layer, creating intermediate_channels channels
-        x = layers.Conv2D(intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-        x = self.add_common_layers(x)
-            
-        #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
-        #to intermed_channels in the linear combination layer
-        k=256
-        if(self.fastMode):
-            k=8
-        for i in range(10):
-            x = self.LBCNN_res_block(x, k, intermed_channels)
+    #Average pooling over 5x5 non-overlapping regions
+    x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
+    x = layers.Conv2D(2, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
+    x = add_common_layers(x)
+    #Flatten and feed into a dense layer
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.5)(x)
+    x = layers.Dense(k)(x)
+    x = layers.LeakyReLU()(x)
+    x = layers.Dropout(0.5)(x)
     
-        x = layers.BatchNormalization()(x)
-        
-        #Average pooling over 5x5 non-overlapping regions
-        x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
-        x = layers.Conv2D(2, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-        x = self.add_common_layers(x)
-        #Flatten and feed into a dense layer
-        x = layers.Flatten()(x)
-        x = layers.Dropout(0.5)(x)
-        x = layers.Dense(k)(x)
-        x = layers.LeakyReLU()(x)
-        x = layers.Dropout(0.5)(x)
-        
-        #Output layer
-        x = layers.Dense(1, activation='sigmoid')(x)
-    
-        return x
-        
-#%%   
+    #Output layer
+    x = layers.Dense(1, activation='sigmoid')(x)
 
-def getResNetModel(fastMode=False):
+    return x
+
+
+def getResNetModel():
     image_tensor = layers.Input(shape=img_shape)
-    network = residual_network(fastMode=fastMode)
-    network_output = network.build_juefei(x=image_tensor)
+    network_output = residual_network(image_tensor)
       
     model = models.Model(inputs=[image_tensor], outputs=[network_output])
     print(model.summary())
 #    adam = optimizers.Adam(lr=0.0001, beta_1=0.9, decay=0.0001)
-    
-    adam = optimizers.Adam()
-    model.compile(loss = keras.losses.binary_crossentropy, metrics = ['accuracy'], optimizer = adam)
+    #adam = optimizers.Adam(lr=0.0001)
+    model.compile(loss = keras.losses.binary_crossentropy, metrics = ['accuracy'], optimizer = 'adam')
+    #model.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = adam)
     return model
 
-
+    
 #%%
 ''' NOT IN USE    
 def myGetModel():
@@ -445,12 +362,12 @@ def step_decay_schedule(initial_lr, nr_training, batch_size):
     return LearningRateScheduler(schedule)
 
 
-    
-def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va):
+
+def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va, batch_size):
     path = "weights-best.hdf5"
     nr_training = len(x_tr)
-    batch_size = 20
-    lr_sched = step_decay_schedule( 0.001, nr_training, batch_size)
+    #batch_size = batchS
+    lr_sched = step_decay_schedule( 0.01, nr_training, batch_size)
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
     cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
@@ -548,41 +465,53 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         x_tr = np.moveaxis(x_tr,1,3)
         x_va = np.moveaxis(x_va,1,3)
         x_te = np.moveaxis(x_te,1,3)
-
+        
+    if(False):
+        x_tr = x_tr[0:200,]
+        x_va = x_va[0:200,]
+        x_te = x_te[0:200,]
+        y_tr = y_tr[0:200,]
+        y_va = y_va[0:200,]
+        y_te = y_te[0:200,]
+            
     return x_tr, x_va, x_te, y_tr, y_va, y_te
     
     
 #%%
-def runImageClassification(foldNr=2, eval_model=0, seed=None, fastMode=False):
+def runImageClassification(foldNr=2, eval_model=0, seed=None, batch_size = 20, num_epochs = 1, ):
+    
+    
     print("Preprocessing data...")
     x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=foldNr, valPercent=0.2, 
-                                                  augment=not(fastMode), seed=seed, 
+                                                  augment=True, seed=seed, 
                                                   changeOrder=True, normalize=True)
+   
     # Create model 
     print("Creating model...")
-    model=getResNetModel(fastMode)
+    model=getResNetModel()
     
-    if(eval_model == 1):
+    if(eval_model is 1):
         print("evaluating model on existing weights.")
-        path_best = "weights_01.hdf5"
-        model.load_weights(path_best)
         results = model.predict(x_te)
         score = model.evaluate(x_te, y_te, verbose=0)
         print('Test accuracy:', score[1])
-        return y_te, results
-
+            
+    
     # Fit model
     print("Fitting model...")
-    epochs = 20
-    if(fastMode):
-        epochs=5
-    model=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va)
+    epochs = num_epochs
+    model=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va, batch_size)
 
     # Evaluate on test data
     print("Evaluating model...")
+    path_best = "weights-best.hdf5"
+    model.load_weights(path_best)
     results = model.predict(x_te)
     score = model.evaluate(x_te, y_te, verbose=0)
     print('Test accuracy:', score[1])
+    
+    print('results data type:')
+    print(type(results))
 
     return y_te, results
 
@@ -594,12 +523,10 @@ if __name__ == "__main__":
     else:
         print("Using CPU only")
         GPU_NUM=None
-    fastMode=False
-    if len(sys.argv) > 2:
-        fastMode = True
-        print("**** Fast mode: Using fold 1 only, no data aug, epochs=5, intermed_channels=4, k=8 ****")
 
-    main(GPU_NUM, fastMode)
+    main(GPU_NUM)
+    
+   
     
 
 
