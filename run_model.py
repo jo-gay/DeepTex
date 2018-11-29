@@ -10,7 +10,7 @@ from sklearn.metrics import confusion_matrix
 #import models that can be run using this script
 from juefei import juefei
 from marcos import marcos
-
+from lei_li import lei_li
 
 availModels={0: 'Juefei', 1: 'Marcos', 2: 'LiLei'}
 
