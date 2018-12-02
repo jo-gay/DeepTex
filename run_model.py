@@ -10,10 +10,10 @@ from sklearn.metrics import confusion_matrix
 #import models that can be run using this script
 from juefei import juefei
 from marcos import marcos
-from lei_li import lei_li
+from lei_li import runLeiLi
+from lbphist import lbphist
 
-availModels={0: 'Juefei', 1: 'Marcos', 2: 'LiLei'}
-
+availModels={0: 'Juefei', 1: 'Marcos', 2: 'LiLei', 3: 'LBPhist'}
 
 '''DEFINE PARAMETERS RELATING TO DATA'''
 #Data is stored in <filedir><fname>k.hdf5 for k in trainfolds.keys and testfolds.keys
@@ -73,19 +73,34 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
     trainData=np.append(healthyData, cancerData, axis=0).astype(np.float32)
     trainLabels=np.append(np.zeros(len(healthyData)), np.ones(len(cancerData)))
 
+    #Split the training data into training and validation BEFORE augmentation so
+    #that the validation set contains cells that have not been seen before.
+    x_tr, x_va, y_tr, y_va = train_test_split(trainData, trainLabels, test_size=valPercent, random_state=seed)
+
     if(augment):
-        '''Augment the training data with mirrored and rotated versions. 
+        '''Augment the training data and validation data with mirrored and rotated versions. 
         '''
-        h_mirror = np.flip(trainData, axis=2)
-        v_mirror = np.flip(trainData, axis=3)
+        h_mirror = np.flip(x_tr, axis=2)
+        v_mirror = np.flip(x_tr, axis=3)
         b_mirror = np.flip(v_mirror, axis=2)
         
-        trainData = np.append(trainData, h_mirror, axis = 0)
-        trainData = np.append(trainData, v_mirror, axis = 0)
-        trainData = np.append(trainData, b_mirror, axis = 0)
+        x_tr = np.append(x_tr, h_mirror, axis = 0)
+        x_tr = np.append(x_tr, v_mirror, axis = 0)
+        x_tr = np.append(x_tr, b_mirror, axis = 0)
         
-        trainData = np.append(trainData, np.rot90(trainData,k=1,axes=(2,3)), axis = 0)
-        trainLabels=np.tile(trainLabels, 8)
+        x_tr = np.append(x_tr, np.rot90(x_tr,k=1,axes=(2,3)), axis = 0)
+        y_tr = np.tile(y_tr, 8)
+
+        h_mirror = np.flip(x_va, axis=2)
+        v_mirror = np.flip(x_va, axis=3)
+        b_mirror = np.flip(v_mirror, axis=2)
+        
+        x_va = np.append(x_va, h_mirror, axis = 0)
+        x_va = np.append(x_va, v_mirror, axis = 0)
+        x_va = np.append(x_va, b_mirror, axis = 0)
+        
+        x_va = np.append(x_va, np.rot90(x_va,k=1,axes=(2,3)), axis = 0)
+        y_va = np.tile(y_va, 8)
 
 
     healthyData=[]
@@ -107,8 +122,6 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         
     x_te=np.append(healthyData, cancerData, axis=0).astype(np.float32)
     y_te=np.append(np.zeros(len(healthyData)), np.ones(len(cancerData)))
-
-    x_tr, x_va, y_tr, y_va = train_test_split(trainData, trainLabels, test_size=valPercent, random_state=seed)
 
     if(normalize):
         # standardize so that each image has mean 0 and std 1
@@ -173,51 +186,58 @@ def initKerasSession(GPU_NUM, totalGPUs=2, imageOrdering='tf'):
 
 if __name__ == '__main__':
     ## SELECTED NETWORK ##
-    model_ver = 0
-    #
+    model_ver = 1
     # 0 - Juefei
     # 1 - Marcos
-    #
+    # 2 - Li
+    # 3 - LBP Histograms
     ######################
 
-    ### DEFAULT PARAMETERS ###
+    ### RUNNING PARAMETERS ###
     GPU_NUM = False #Set to False for CPU only
-    Nepochs = 20
-    batch_size = 20 if model_ver==0 else 100
-    fastMode = False
-    dnow=datetime.datetime.now()
-    resultsFile = 'savedResults%02d%02d.txt'%(dnow.hour, dnow.minute)
+    fastMode = False #Set to True to reduce folds, epochs and network sizes
     ##################
-   
 
     ## READ COMMAND LINE PARAMS ##
     if len(sys.argv) > 1:
         if(sys.argv[1]=='-h' or sys.argv[1][0]=='h' or sys.argv[1]=='-help'):
-            exit('Usage: python %s [<GPU_ID> <Model_ID> <fast>]'%sys.argv[0])
+            print('Usage: python %s [<GPU_ID> <Model_ID> <fast>]'%sys.argv[0])
+            print('Available models are:',['%d: %s'%(k,v) for k, v in availModels.items()])
+            exit(-1)
         GPU_NUM = int(sys.argv[1])
         print("Using GPU %d"%GPU_NUM)
     if len(sys.argv) > 2:
         model_ver=int(sys.argv[2])
     if len(sys.argv) > 3:
         fastMode=True
+
+    ### DEFAULT PARAMETERS ###
+    Nepochs = 20
+    dnow=datetime.datetime.now()
+    resultsFile = 'savedResults%02d%02d.txt'%(dnow.hour, dnow.minute)
+    batch_size = 20 if model_ver == 0 else 100 #model 0 crashes with 50
+    batch_size = 50 if model_ver == 2 else batch_size #model 2 crashes with 100
+    ##################
     
     folds = list(trainfolds.keys())
     if(fastMode):
         folds=[2,]
         Nepochs=2
 
+    if(GPU_NUM == False): #reduce batch size if running on cpu
+        batch_size=20
     valAcc=0
     confusionMat=[[0,0],[0,0]]
     overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'ValidationAcc':0, 'NumTestPts':0, 'Confusion':[]}
     
     print('Running model %s %s using %d epochs, batch size %d, on %s'%
                   (availModels[model_ver], "in fastmode" if fastMode else "", 
-                   Nepochs, batch_size, "GPU %d"%GPU_NUM if GPU_NUM is not None else "CPU"))
-    print("\n Saving results to ", resultsFile)
+                   Nepochs, batch_size, "GPU %d"%GPU_NUM if GPU_NUM is not False else "CPU"))
+    print("\n Saving results to", resultsFile)
     with open(resultsFile, 'w') as outfile:
         outfile.write('Running model %s %s using %d epochs, batch size %d, on %s\n'%
                       (availModels[model_ver], "in fastmode" if fastMode else "", 
-                       Nepochs, batch_size, "GPU %d"%GPU_NUM if GPU_NUM is not None else "CPU"))
+                       Nepochs, batch_size, "GPU %d"%GPU_NUM if GPU_NUM is not False else "CPU"))
         outfile.write('Start time: '+str(datetime.datetime.now())+'\n')
 
     for idx, f in enumerate(folds):
@@ -226,11 +246,12 @@ if __name__ == '__main__':
         print("Preprocessing data...")
         x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=f, valPercent=0.2, 
                                                   augment=True, seed=None, 
-                                                  changeOrder=True, normalize=True, 
+                                                  changeOrder=not(model_ver==1), 
+                                                  normalize=True, 
                                                   fastMode=fastMode)
         #### Juefei ####
         if(model_ver == 0):
-            classifier=juefei(fastMode, nLayers=10, sparsity=0.1)
+            classifier=juefei(fastMode, nLayers=10, sparsity=0.9)
             sess = initKerasSession(GPU_NUM)
             with sess.as_default():
                 y_te, preds, mHist = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
@@ -260,6 +281,45 @@ if __name__ == '__main__':
                     outfile.write('\t'+'\t '.join(map(str,row)))
                     outfile.write('\n')
             valAcc+=v_acc
+
+
+        #### LeiLi ####
+        elif(model_ver == 2):
+            sess = initKerasSession(GPU_NUM)
+            with sess.as_default():
+                y_te, preds, mHist = runLeiLi(x_tr, x_va, x_te, y_tr, y_va, y_te, 
+                                              num_epochs = Nepochs, batch_size = batch_size)
+                valAcc += max(mHist.history['val_acc'])
+                for k,v in mHist.history.items():
+                    print(k, v)
+                with open(resultsFile, 'a') as outfile:
+                    outfile.write('Training history for fold %d:\n'%f)
+                    for k,v in mHist.history.items():
+                        outfile.write('%16s: %s\n'%(k, str(v)))
+                    outfile.write('Confusion matrix for fold %d:\n'%f)
+                    for row in confusion_matrix(y_te, preds):
+                        outfile.write('\t'+'\t '.join(map(str,row)))
+                        outfile.write('\n')
+            
+        #### LBP Histograms ####
+        elif(model_ver == 3):
+            classifier=lbphist()
+            sess = initKerasSession(GPU_NUM)
+            with sess.as_default():
+                y_te, preds, mHist = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
+                                                  num_epochs = Nepochs, batch_size = batch_size)
+                valAcc += max(mHist.history['val_acc'])
+                for k,v in mHist.history.items():
+                    print(k, v)
+                with open(resultsFile, 'a') as outfile:
+                    outfile.write('Training history for fold %d:\n'%f)
+                    for k,v in mHist.history.items():
+                        outfile.write('%16s: %s\n'%(k, str(v)))
+                    outfile.write('Confusion matrix for fold %d:\n'%f)
+                    for row in confusion_matrix(y_te, preds):
+                        outfile.write('\t'+'\t '.join(map(str,row)))
+                        outfile.write('\n')
+
         
         else:
             print("model %d not defined"%model_ver)

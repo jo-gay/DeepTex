@@ -6,10 +6,7 @@ Created on Thu Nov 22 11:04:29 2018
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 import keras
-import h5py, sys
-import random
 import tensorflow as tf
 from keras.utils import np_utils
 from keras import layers
@@ -24,9 +21,6 @@ from keras.callbacks import LearningRateScheduler
 from keras import optimizers
 from keras.engine.topology import Layer
 from keras.utils.generic_utils import get_custom_objects
-from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import train_test_split
-from first_model_cnn import loadData, doInitTasks
 
 
 
@@ -41,44 +35,26 @@ class GateLayer(Activation):
         super(GateLayer, self).__init__(activation, **kwargs)
         self.__name__ = 'gate_layer'
 
-#%% MAIN SCRIPT
-def main(GPU_NUM):
-    
-    print('GPU_NUM: ')
-    print(GPU_NUM)
-    sess = doInitTasks(GPU_NUM)
-    with sess.as_default():
-        y_te, res = runLeiLi(foldNr=2)
-
-    preds=[int(x>0.5) for x in res]
-    #truth=np.argmax(res[0], axis=1)
-    print(confusion_matrix(y_te, preds))
-
 
 def myFitModel(cNN,epochs, x_tr,y_tr, x_va,y_va, batch_size):
     path = "weights-best.hdf5"
-    nr_training = len(x_tr)
-    #batch_size = batchS
-    lr_sched = step_decay_schedule( 0.01, nr_training, batch_size)
+    lr_sched = proportional_decay_schedule( 0.01, 0.8, 1)
     model_checkpoint = ModelCheckpoint(filepath = path, monitor='val_acc', verbose=1, save_best_only=True, mode='auto', period=1)
     early_stopping = EarlyStopping(monitor='val_acc', min_delta=0, patience=20, verbose=0, mode='auto', baseline=None)
-    cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
+    mHist=cNN.fit(x_tr, y_tr, batch_size=batch_size, epochs = epochs, validation_data = (x_va, y_va),callbacks = [lr_sched, model_checkpoint, early_stopping])
     cNN.load_weights(path)
-    return cNN
+    return cNN, mHist
    
-def step_decay_schedule(initial_lr, nr_training, batch_size):
+def proportional_decay_schedule(initial_lr, proportion=0.5, perepochs=1):
     '''
-    Wrapper function to create a LearningRateScheduler with step decay schedule.
+    Wrapper function to create a LearningRateScheduler with geometric decay schedule.
+    Every perepochs epochs, multiply learning rate by proportion.
     '''
-    
     def schedule(epoch):
-        decay = 1
-        if(epoch*(nr_training/batch_size) >= 3000):
-            decay = decay /10
-        if(epoch*(nr_training/batch_size) >= 6000):
-            decay = decay /10
-        print('learning rate: %f' %(initial_lr*decay))    
-        return initial_lr * decay
+        lr = initial_lr * proportion ** (epoch//perepochs)
+        print('learning rate: %f' %(lr))
+        return lr
+
     return LearningRateScheduler(schedule)
 
 
@@ -91,31 +67,36 @@ def getCNN(x):
             print("input channels: ")
             print(nb_channels)
             
-        weights = np.array([[0,0,0],[0,-1,0],[0,0,0]])
-        if(j==0):
-            weights[0][0] = 1
-        if(j==1):   
-            weights[0][1] = 1
-        if(j==2):
-            weights[0][2] = 1
-        if(j==3): 
-            weights[1][0] = 1
-        if(j==4):
-            weights[1][2] = 1
-        if(j==5):
-            weights[2][0] = 1
-        if(j==6):
-            weights[2][1] = 1
-        if(j==7):    
-            weights[2][2] = 1  
+#        weights = np.array([[0,0,0],[0,-1,0],[0,0,0]])
+#        if(j==0):
+#            weights[0][0] = 1
+#        if(j==1):   
+#            weights[0][1] = 1
+#        if(j==2):
+#            weights[0][2] = 1
+#        if(j==3): 
+#            weights[1][0] = 1
+#        if(j==4):
+#            weights[1][2] = 1
+#        if(j==5):
+#            weights[2][0] = 1
+#        if(j==6):
+#            weights[2][1] = 1
+#        if(j==7):    
+#            weights[2][2] = 1  
         
-        weightTensor = np.zeros((nb_channels,3,3))
-        weightTensor[filterNo,] = weights
-        #print("weigthTensor:" )
-        #print(weightTensor)
-        #print("_____________________")
+#        weightTensor = np.zeros((nb_channels,3,3))
+#        weightTensor[filterNo,] = weights
+        weightTensor = np.zeros((3,3,nb_channels,1))
+        row=j//3
+        col=j-3*row
+        weightTensor[row][col][filterNo][0]=1
+        weightTensor[1][1][filterNo][0]=-1
+#        print("weigthTensor:" )
+#        print(weightTensor)
+#        print("_____________________")
+#        weightTensor=weightTensor.reshape(3,3,nb_channels,1) 
         bias=np.zeros(1)   # one filter  
-        weightTensor=weightTensor.reshape(3,3,nb_channels,1) 
         return np.asarray([weightTensor, bias])
         
     def lb_convolution(y, j, nb_channels):
@@ -170,8 +151,8 @@ def getCNN(x):
         return (Activation('gate_layer')(y))  
 
     ### PART 1 - CONVOLUTIONAL LAYERS ###
-    initial_channels = 8   
-    output_channels = 16
+    initial_channels = 32 #32 default
+    output_channels = 64 #64 default
     x = layers.Conv2D(initial_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
     x = layers.BatchNormalization()(x)
     x = Activation('relu')(x)
@@ -190,6 +171,7 @@ def getCNN(x):
     x = layers.AveragePooling2D(pool_size=(40, 40))(x)
     ### DENSE LAYERS ###
     x = layers.Flatten()(x)
+    #x = layers.Dropout(0.5)(x) ##DROPOUT ADDED TO ADDRESS OVERFITTING
     x = layers.Dense(512)(x)
     x = layers.BatchNormalization()(x)
     x = Activation('relu')(x)
@@ -205,24 +187,19 @@ def getLeiLi():
     model = models.Model(inputs=[image_tensor], outputs=[network_output])
     print(model.summary())
 #    adam = optimizers.Adam(lr=0.0001, beta_1=0.9, decay=0.0001)
-    #adam = optimizers.Adam(lr=0.0001)
-    model.compile(loss = keras.losses.binary_crossentropy, metrics = ['accuracy'], optimizer = 'adam')
+    sgd = optimizers.sgd(lr=0.001, decay=0.0005, momentum=0.9)
+    model.compile(loss = keras.losses.binary_crossentropy, metrics = ['accuracy'], optimizer = sgd)
     #model.compile(loss = keras.losses.categorical_crossentropy ,metrics = ['accuracy'], optimizer = adam)
     return model    
 
-def runLeiLi(foldNr=2, eval_model=0, seed=None, batch_size = 100, num_epochs = 10):
+def runLeiLi(x_tr, x_va, x_te, y_tr, y_va, y_te,
+             num_epochs = 10, batch_size = 100, eval_model=0):
     
-    
-    print("Preprocessing data...")
-    x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=foldNr, valPercent=0.2, 
-                                                  augment=True, seed=seed, 
-                                                  changeOrder=True, normalize=True)
-   
     # Create model 
     print("Creating model...")
     model=getLeiLi()
     
-    if(eval_model is 1):
+    if(eval_model == 1):
         print("evaluating model on existing weights.")
         results = model.predict(x_te)
         score = model.evaluate(x_te, y_te, verbose=0)
@@ -231,7 +208,7 @@ def runLeiLi(foldNr=2, eval_model=0, seed=None, batch_size = 100, num_epochs = 1
     # Fit model
     print("Fitting model...")
     epochs = num_epochs
-    model=myFitModel(model,epochs,x_tr,y_tr,x_va,y_va, batch_size)
+    model, mHist = myFitModel(model,epochs,x_tr,y_tr,x_va,y_va, batch_size)
 
     # Evaluate on test data
     print("Evaluating model...")
@@ -241,19 +218,7 @@ def runLeiLi(foldNr=2, eval_model=0, seed=None, batch_size = 100, num_epochs = 1
     score = model.evaluate(x_te, y_te, verbose=0)
     print('Test accuracy:', score[1])
     
-    print('results data type:')
-    print(type(results))
+    preds=[int(x>0.5) for x in results]
 
-    return y_te, results 
-
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        GPU_NUM = int(sys.argv[1])
-        print("Using GPU %d"%GPU_NUM)
-    else:
-        print("Using CPU only")
-        GPU_NUM=None
-
-    main(GPU_NUM)
+    return y_te, preds, mHist 
     

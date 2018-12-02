@@ -32,7 +32,7 @@ img_channels = 1
 img_shape=(img_height, img_width, img_channels)
 
 class juefei:
-    def __init__(self, fastMode=False, nLayers=10, sparsity=0.5, intermed_channels=128, k=512):
+    def __init__(self, fastMode=False, nLayers=10, sparsity=0.9, intermed_channels=128, k=512):
         self.kSparsity=sparsity
         self.nLayers=nLayers
         if(fastMode):
@@ -69,10 +69,12 @@ class juefei:
 
     #Function to create LBCNN layer, similar to standard CNN but fixed binary filters
     def lb_convolution(self, y, nb_filters, nb_channels, _strides):
-        kernel_size=(3,3)
-        return layers.Conv2D(nb_filters, kernel_size=kernel_size, strides=_strides, 
-                              weights=self.getLBCNNWeights(kernel_size, nb_filters, nb_channels), 
-                              padding='same', trainable=False)(y)
+        kernel_size=3
+        y = layers.ZeroPadding2D(padding=(kernel_size//2, kernel_size//2))(y)
+        return layers.Conv2D(nb_filters, kernel_size=(kernel_size, kernel_size), 
+                             strides=_strides, weights=self.getLBCNNWeights(
+                                     (kernel_size, kernel_size), nb_filters, nb_channels), 
+                             padding='valid', trainable=False)(y)
 
     #Function to define LBCNN block with residual connection, to emulate functionality
     #of resnet-binary-felix.lua:createModel.basicBlock
@@ -135,26 +137,31 @@ class juefei:
         '''Build a modified version of juefei-xu, to get best performance with
         our dataset '''
     
-        #Begin with (3x3) conv layer, creating intermediate_channels channels
-        x = layers.Conv2D(self.intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-        x = self.add_common_layers(x)
+        #Begin with (3x3) conv layer, to create intermediate_channels channels
+        x = layers.Conv2D(self.intermed_channels, kernel_size=(3, 3), 
+                          strides=(1, 1), padding='same')(x)
+        x = self.add_common_layers(x, False)
             
         #Add LBCNN blocks, each with k channels in their binary filter layer, reducing back 
         #to intermed_channels in the linear combination layer
         for i in range(self.nLayers):
-            x = self.LBCNN_res_block(x, self.k, self.intermed_channels)
+            x = self.LBCNN_res_block(x, self.k, self.intermed_channels, leaky=False)
     
         x = layers.BatchNormalization()(x)
         
         #Average pooling over 5x5 non-overlapping regions
         x = layers.AveragePooling2D(pool_size=(5,5), strides=(5,5), padding='valid')(x)
-        x = layers.Conv2D(2, kernel_size=(3, 3), strides=(1, 1), padding='same')(x)
-        x = self.add_common_layers(x)
+        
+        #Additional convolutional layers
+#        x = layers.Conv2D(self.intermed_channels, kernel_size=(3, 3), strides=(1, 1), padding='valid')(x)
+#        x = self.add_common_layers(x, False)
+        x = layers.Conv2D(16, kernel_size=(3, 3), strides=(1, 1), padding='valid')(x)
+        x = self.add_common_layers(x, False)
         #Flatten and feed into a dense layer
         x = layers.Flatten()(x)
         x = layers.Dropout(0.5)(x)
-        x = layers.Dense(self.k)(x)
-        x = layers.LeakyReLU()(x)
+        x = layers.Dense(self.k)(x) #TRIED: reduce to k/2 since 17 million parameters is a lot
+        x = layers.ReLU()(x)
         x = layers.Dropout(0.5)(x)
         
         #Output layer
@@ -167,7 +174,7 @@ class juefei:
 
     def getModel(self):
         image_tensor = layers.Input(shape=img_shape)
-        network_output = self.build_juefei(x=image_tensor)
+        network_output = self.build_modified_juefei(x=image_tensor)
           
         model = models.Model(inputs=[image_tensor], outputs=[network_output])
         print(model.summary())
@@ -184,9 +191,9 @@ class juefei:
         
         def schedule(epoch):
             decay = 1
-            if(epoch*(nr_training/batch_size) >= 8000):
+            if(epoch*(nr_training/batch_size) >= 3000):
                 decay = decay /10
-            if(epoch*(nr_training/batch_size) >= 12000):
+            if(epoch*(nr_training/batch_size) >= 6000):
                 decay = decay /10
             print('learning rate: %f' %(initial_lr*decay))    
             return initial_lr * decay

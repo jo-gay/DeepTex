@@ -88,8 +88,8 @@ class marcos:
 
                     for i in range(self.batch_size):
                         im = original_data[i,:,:,:].squeeze()
-                        im = rotate_im(im, rotation)
-                        im = im.reshape([1, 1, 28, 28])
+                        im = rotate_im(im, rotation, 80)
+                        im = im.reshape([1, 1, 80, 80])
                         im = torch.FloatTensor(im)
                         data[i,:,:,:] = im
 
@@ -113,11 +113,14 @@ class marcos:
             pred.append(c.data.cpu().numpy())
         true = np.concatenate(true, 0)
         pred = np.concatenate(pred, 0)
+        if mode == 'test':
+            print("Predicted:", pred, "\nTrue:", true)
         acc = np.average(pred == true)
         if(returnval ==  0):
             return acc
         else:
-            return pred
+            print('Test accuracy:', acc)
+            return true, pred
 
     def getBatch(self, dataset, mode):
         """ Collect a batch of samples from list """
@@ -171,18 +174,18 @@ class marcos:
         if type(self.gpu_no) == int:
             net.cuda(self.gpu_no)
     
-        if True: #Current best setup using this implementation - error rate of 1.2%
+        if False: #Current best setup using this implementation - error rate of 1.2%
             self.start_lr = 0.01
             self.batch_size = batch_size
             optimizer = optim.Adam(net.parameters(), lr=self.start_lr)  # , weight_decay=0.01)
-            self.use_test_time_augmentation = False
+            self.use_test_time_augmentation = True
             self.use_train_time_augmentation = False
         else: #From paper using MATLAB implementation - reported error rate of 1.4%
-            self.start_lr = 0.1
-            self.batch_size = 200
-            optimizer = optim.SGD(net.parameters(), lr=self.start_lr, weight_decay=0.01)
-            self.use_test_time_augmentation = True
-            self.use_train_time_augmentation = True
+            self.start_lr = 0.1 #was 0.1
+            self.batch_size = batch_size #was 200
+            optimizer = optim.SGD(net.parameters(), lr=self.start_lr, weight_decay=0.01) #was weight_decay=0.01
+            self.use_test_time_augmentation = False #was false
+            self.use_train_time_augmentation = False #was false
     
         train_set = list(zip(x_tr, y_tr))
         val_set = list(zip(x_va, y_va))
@@ -197,7 +200,7 @@ class marcos:
     
             #Training
             net.train()
-            for batch_no in range(len(train_set)//batch_size):
+            for batch_no in range(len(train_set)//self.batch_size):
     
                 # Train
                 optimizer.zero_grad()
@@ -229,7 +232,7 @@ class marcos:
         # Finally test on test-set with the best model
         net.load_state_dict(torch.load(bestModelFname))
         
-        pred = self.test(net, test_set[:], 'test', criterion, returnval = 1)
+        true, pred = self.test(net, test_set[:], 'test', criterion, returnval = 1)
     
-        return y_te[:len(pred)], pred, best_acc
+        return true, pred, best_acc
         
