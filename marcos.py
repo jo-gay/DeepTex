@@ -7,13 +7,12 @@ import numpy as np
 from torch.autograd import Variable
 import random
 
-#import sys
-#sys.path.append('../') #Import
 from marcos_layers_2D import *
 from marcos_utils import rotate_im, random_rotation
 
 """
 Adapted from mnist_test.py by Anders U. Waldeland
+https://github.com/COGMAR/RotEqNet
 
 A reproduction of the MNIST-classification network described in:
 Rotation equivariant vector field networks (ICCV 2017)
@@ -21,7 +20,6 @@ Diego Marcos, Michele Volpi, Nikos Komodakis, Devis Tuia
 https://arxiv.org/abs/1612.09346
 https://github.com/dmarcosg/RotEqNet
 """
-
 
 # Define network
 class Net(nn.Module):
@@ -32,19 +30,19 @@ class Net(nn.Module):
             self.main = nn.Sequential(
     
                 RotConv(1, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
-                VectorMaxPool(2),
+                VectorMaxPool(2), #size 40 now
                 VectorBatchNorm(16),
     
                 RotConv(16, 64, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
-                VectorMaxPool(2),
+                VectorMaxPool(2), #size 20 now
                 VectorBatchNorm(64),
     
                 RotConv(64, 128, [9, 9], 1, 1, n_angles=17, mode=2),
-                VectorMaxPool(2),
+                VectorMaxPool(2), #size 7 now (20-6)/2
                 VectorBatchNorm(128),
                 
                 RotConv(128, 256, [9, 9], 1, 1, n_angles=17, mode=2),
-                Vector2Magnitude(),
+                Vector2Magnitude(), #size 1 now (7-6)
     
                 nn.Conv2d(256, 128, 1),  # FC1
                 nn.BatchNorm2d(128),
@@ -53,19 +51,19 @@ class Net(nn.Module):
                 nn.Conv2d(128, nClasses, 1),  # FC2
     
             )
-        else: #mnist
+        else: #mnist, size = 28
             self.main = nn.Sequential(
     
                 RotConv(1, 6, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
-                VectorMaxPool(2),
+                VectorMaxPool(2), #size 14 now
                 VectorBatchNorm(6),
     
                 RotConv(6, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
-                VectorMaxPool(2),
+                VectorMaxPool(2), #size 7 now
                 VectorBatchNorm(16),
                 
                 RotConv(16, 32, [9, 9], 1, 1, n_angles=17, mode=2),
-                Vector2Magnitude(),
+                Vector2Magnitude(), # size 1 now (7-6)
     
                 nn.Conv2d(32, 128, 1),  # FC1
                 nn.BatchNorm2d(128),
@@ -83,6 +81,8 @@ class Net(nn.Module):
 
 class marcos:
     def __init__(self, gpu_no=0, fastMode=False, shape=(1,80,80), numClasses=2):
+        '''Set up parameters for the model
+        '''
         self.fastMode = fastMode
         self.gpu_no=gpu_no
         self.use_train_time_augmentation=False
@@ -91,7 +91,11 @@ class marcos:
         self.numClasses=numClasses
         
     def test(self, model, dataset, mode, criterion, returnval = 0):
-        """ Return test-acuracy for a dataset"""
+        """ Return test acuracy for a given dataset
+            If returnval != 0, return labels for test set, predictions, and accuracy.
+            Labels are returned because the given test dataset will be truncated to the number
+            of whole batches available.
+        """
         model.eval()
 
         true = []
@@ -131,12 +135,9 @@ class marcos:
 
             #Only run once
             else:
-#                print("about to run model with data length", len(data), "and dim", data[0].shape)
-#                out = model(data)
-#                print("output length", len(out), "and dim", out[0].shape)
                 out = F.softmax(model(data),dim=1)
 
-            loss = criterion(out, labels)
+            #loss = criterion(out, labels)
             _, c = torch.max(out, 1)
             true.append(labels.data.cpu().numpy())
             pred.append(c.data.cpu().numpy())
@@ -196,6 +197,14 @@ class marcos:
     
     
     def classify(self, x_tr, x_va, x_te, y_tr, y_va, y_te, num_epochs=2, batch_size=128):
+        '''classify function takes training, validation and test datasets and returns
+        true labels for test dataset (same as y_te but maybe reordered and/or truncated), 
+        predicted labels for test dataset, test accuracy. 
+        Model is trained on x_tr/y_tr for num_epochs epocs and with batch size batch_size.
+        Model weights are saved each time validation accuracy (as calculated using x_va/y_va)
+        increases and after all epochs are complete, are reloaded. This reloaded model is
+        used for testing.
+        '''
         train_set = list(zip(x_tr, y_tr))
         val_set = list(zip(x_va, y_va))
         test_set = list(zip(x_te, y_te)) 
@@ -203,6 +212,9 @@ class marcos:
         return self.classifyPt2(train_set, val_set, test_set, num_epochs, batch_size)
         
     def classifyPt2(self, train_set, val_set, test_set, num_epochs=50, batch_size=128):
+        '''Split classify function into separate parts to better handle the case where 
+        the data is already in the zipped format required
+        '''
         bestModelFname='best_model.pt'
         #Setup net, loss function, optimizer and hyper parameters
         net = Net(train_set[0][0].shape[1], self.numClasses)
@@ -220,8 +232,8 @@ class marcos:
             self.start_lr = 0.1 #was 0.1
             self.batch_size = batch_size #was 600
             optimizer = optim.SGD(net.parameters(), lr=self.start_lr, weight_decay=0.01) #was weight_decay=0.01
-            self.use_test_time_augmentation = True #was True
-            self.use_train_time_augmentation = True #was True
+            self.use_test_time_augmentation = False #was True
+            self.use_train_time_augmentation = False #was True
         
         best_acc = 0
         for epoch_no in range(num_epochs):
