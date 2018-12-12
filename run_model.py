@@ -1,9 +1,8 @@
 import numpy as np
-import h5py, sys, datetime
-import tensorflow as tf
-from keras import backend as K
+import h5py, datetime
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
+import argparse
 
 #import models that can be run using this script
 from juefei import juefei
@@ -11,7 +10,10 @@ from marcos import marcos
 from lei_li import runLeiLi
 from lbphist import lbphist
 
-availModels={0: 'Juefei', 1: 'Marcos', 2: 'LiLei', 3: 'LBPhist'}
+availModels={0: 'Juefei-Xu', 1: 'Marcos', 2: 'LiLei', 3: 'LBPhist'}
+
+'''DEFINE GPU SETUP - specify which gpu to use on command line, default None'''
+totalGPUs=2
 
 '''DEFINE PARAMETERS RELATING TO DATA'''
 #Data is stored in <filedir><fname>k.hdf5 for k in trainfolds.keys and testfolds.keys
@@ -53,7 +55,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         a_group_key = list(f.keys())[0]
         d=list(f[a_group_key])
         cancerData += d
-        print("Glass %d, tumour, %d images"%(g,len(d)))
+        #print("Glass %d, tumour, %d images"%(g,len(d)))
     for g in trainGlasses['healthy']:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -61,7 +63,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         a_group_key = list(f.keys())[0]
         d=list(f[a_group_key])
         healthyData += d
-        print("Glass %d, healthy, %d images"%(g,len(d)))
+        #print("Glass %d, healthy, %d images"%(g,len(d)))
     
     if(len(cancerData)<len(healthyData)):
         healthyDataIdx = np.random.choice(len(healthyData), size=len(cancerData), replace=False)
@@ -162,6 +164,9 @@ Otherwise (e.g. commandline arg = totalGPUs), use all GPUs.
 Also set image ordering in Keras to match data.
 '''
 def initKerasSession(GPU_NUM, totalGPUs=2, imageOrdering='tf'):
+    import tensorflow as tf
+    from keras import backend as K
+
     config = None
 
     if(GPU_NUM is None):
@@ -186,64 +191,90 @@ def initKerasSession(GPU_NUM, totalGPUs=2, imageOrdering='tf'):
     return sess
 
 
+''' Append results for fold f to resultsFile, including confusion matrix cm
+    and any of the following if available: 
+        model History (from Keras) mHist, 
+        validation accuracy v_acc, 
+        test accuracy t_acc
+'''
+def appendFoldResults(f, resultsFile, cm, mHist=None, v_acc=None, t_acc=None):
+    with open(resultsFile, 'a') as outfile:
+        if mHist is not None:
+            outfile.write('Training history for fold %d:\n'%f)
+            for k,v in mHist.history.items():
+                outfile.write('%16s: %s\n'%(k, str(v)))
+        outfile.write('Confusion matrix for fold %d:\n'%f)
+        for row in cm:
+            outfile.write('\t'+'\t '.join(map(str,row)))
+            outfile.write('\n')
+        if v_acc is not None:
+            outfile.write('Validation accuracy for fold %d: %2.5f\n'%(f, v_acc))
+        if t_acc is not None:
+            outfile.write('Test accuracy for fold %d: %2.5f\n'%(f, t_acc))
 
-if __name__ == '__main__':
-    ## SELECTED NETWORK ##
-    model_ver = 1
-    # 0 - Juefei
-    # 1 - Marcos
-    # 2 - Li
-    # 3 - LBP Histograms
-    ######################
 
-    ### RUNNING PARAMETERS ###
-    GPU_NUM = False #Set to False for CPU only
-    fastMode = False #Set to True to reduce folds, epochs and network sizes
-    ##################
-
-    ## READ COMMAND LINE PARAMS ##
-    if len(sys.argv) > 1:
-        if(sys.argv[1]=='-h' or sys.argv[1][0]=='h' or sys.argv[1]=='-help'):
-            print('Usage: python %s [<GPU_ID> <Model_ID> <fast>]'%sys.argv[0])
-            print('Available models are:',['%d: %s'%(k,v) for k, v in availModels.items()])
-            exit(-1)
-        GPU_NUM = int(sys.argv[1])  
-        print("Using GPU %d"%GPU_NUM)
-    if len(sys.argv) > 2:
-        model_ver=int(sys.argv[2])
-    if len(sys.argv) > 3:
-        fastMode=True
-
-    ### DEFAULT PARAMETERS ###
-    Nepochs = 90
+''' Read command line parameters. Defaults are also set here
+'''
+def readCommandLine(totalGPUs=2):
     dnow=datetime.datetime.now()
     resultsFile = 'savedResults%02d%02d.txt'%(dnow.hour, dnow.minute)
-    batch_size = 100
-    if model_ver == 0 or GPU_NUM is False: #model 0 crashes with 50
-        batch_size = 20
-    elif model_ver == 1: #model 1 crashes with 70 (if 64 filters in each layer)
-        batch_size = 200
-    elif model_ver == 2: #model 2 crashes with 100
-        batch_size = 50 
-    ##################
+
+    parser = argparse.ArgumentParser(description='Run one of several available models on specified data')
+    parser.add_argument('-g', '--gpu', dest='GPU_NUM', type=int, default=None,
+                   help='GPU number 0-%d to run on; Omit for CPU; %d for all'%(totalGPUs-1, totalGPUs))
+    parser.add_argument('--model','-m', type=int, default=0, dest='model_ver',
+                   help='Model number: %s'%str(availModels))
+    parser.add_argument('--fast', '-f', dest='fastMode', action='store_const',
+                   const=True, default=False,
+                   help='Run in fast mode with very limited training dataset, number of epochs, etc')
+    parser.add_argument('--outfile','-o', type=str, default=resultsFile, dest='resultsFile',
+                   help='Filename to write results to (will be overwritten)')
+    parser.add_argument('--epochs','-e', type=int, default=90, dest='Nepochs',
+                   help='Number of epochs to run for')
+    parser.add_argument('--batchsz','-b', type=int, default=200, dest='batch_size',
+                   help='Set batch size')
+
+    args = parser.parse_args()
+    
+    #limit batch size depending on model
+    if args.model_ver == 0 or args.GPU_NUM is None: #model 0 crashes with 50
+        max_bs = 20
+    elif args.model_ver == 1: #model 1 crashes with 70 (if 64 filters in each layer)
+        max_bs = 50
+    elif args.model_ver == 2: #model 2 crashes with 100
+        max_bs = 50 
+    if(args.batch_size > max_bs):
+        args.batch_size = max_bs
+    
+    print(args)
+    return args
+
+
+''' Main function reads command line arguments, iterates through folds
+    and for each fold, trains and evaluates the chosen model.
+    Results are output to screen and to a file.
+'''
+if __name__ == '__main__':
+
+    args=readCommandLine(totalGPUs)
     
     folds = list(trainfolds.keys())
-    if(fastMode):
+    if(args.fastMode):
         folds=[2,]
-        Nepochs=2
+        args.Nepochs=2
 
     valAcc=0
     confusionMat=[[0,0],[0,0]]
     overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'ValidationAcc':0, 'NumTestPts':0, 'Confusion':[]}
     
     print('Running model %s %s using %d epochs, batch size %d, on %s'%
-                  (availModels[model_ver], "in fastmode" if fastMode else "", 
-                   Nepochs, batch_size, "GPU %d"%GPU_NUM if GPU_NUM is not False else "CPU"))
-    print("\n Saving results to", resultsFile)
-    with open(resultsFile, 'w') as outfile:
+                  (availModels[args.model_ver], "in fastmode" if args.fastMode else "", 
+                   args.Nepochs, args.batch_size, "GPU %d"%args.GPU_NUM if args.GPU_NUM is not None else "CPU"))
+    print("\n Saving results to", args.resultsFile)
+    with open(args.resultsFile, 'w') as outfile:
         outfile.write('Running model %s %s using %d epochs, batch size %d, on %s\n'%
-                      (availModels[model_ver], "in fastmode" if fastMode else "", 
-                       Nepochs, batch_size, "GPU %d"%GPU_NUM if GPU_NUM is not False else "CPU"))
+                      (availModels[args.model_ver], "in fastmode" if args.fastMode else "", 
+                       args.Nepochs, args.batch_size, "GPU %d"%args.GPU_NUM if args.GPU_NUM is not None else "CPU"))
         outfile.write('Start time: '+str(datetime.datetime.now())+'\n')
 
     for idx, f in enumerate(folds):
@@ -252,84 +283,54 @@ if __name__ == '__main__':
         print("Preprocessing data...")
         x_tr, x_va, x_te, y_tr, y_va, y_te = loadData(foldNr=f, valPercent=0.2, 
                                                   augment=True, seed=None, 
-                                                  changeOrder=not(model_ver==1), 
+                                                  changeOrder=not(args.model_ver==1), 
                                                   normalize=True, 
-                                                  fastMode=fastMode)
+                                                  fastMode=args.fastMode)
         #### Juefei ####
-        if(model_ver == 0):
-            classifier=juefei(fastMode, nLayers=10, sparsity=0.9)
-            sess = initKerasSession(GPU_NUM)
+        if(args.model_ver == 0):
+            classifier=juefei(args.fastMode, nLayers=10, sparsity=0.9)
+            sess = initKerasSession(args.GPU_NUM)
             with sess.as_default():
                 y_te, preds, mHist = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
-                                                   num_epochs=Nepochs, batch_size=batch_size)
+                                                   num_epochs=args.Nepochs, batch_size=args.batch_size)
                 valAcc += max(mHist.history['val_acc'])
                 for k,v in mHist.history.items():
                     print(k, v)
-                with open(resultsFile, 'a') as outfile:
-                    outfile.write('Training history for fold %d:\n'%f)
-                    for k,v in mHist.history.items():
-                        outfile.write('%16s: %s\n'%(k, str(v)))
-                    outfile.write('Confusion matrix for fold %d:\n'%f)
-                    for row in confusion_matrix(y_te, preds):
-                        outfile.write('\t'+'\t '.join(map(str,row)))
-                        outfile.write('\n')
-
+                appendFoldResults(f, args.resultsFile, confusion_matrix(y_te, preds), mHist=mHist)
 
         #### Marcos ####
-        elif(model_ver == 1):
-            classifier=marcos(GPU_NUM, fastMode)
+        elif(args.model_ver == 1):
+            classifier=marcos(args.GPU_NUM, args.fastMode)
             y_te, preds, v_acc, t_acc = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
-                                              num_epochs = Nepochs, batch_size = batch_size)
-            with open(resultsFile, 'a') as outfile:
-                outfile.write('Validation accuracy for fold %d: %2.5f\n'%(f, v_acc))
-                outfile.write('Test accuracy for fold %d: %2.5f\n'%(f, t_acc))
-                outfile.write('Confusion matrix for fold %d:\n'%f)
-                for row in confusion_matrix(y_te, preds):
-                    outfile.write('\t'+'\t '.join(map(str,row)))
-                    outfile.write('\n')
+                                              num_epochs = args.Nepochs, batch_size = args.batch_size)
+            appendFoldResults(f, args.resultsFile, confusion_matrix(y_te, preds), v_acc=v_acc, t_acc=t_acc)
             valAcc+=v_acc
 
-
         #### LeiLi ####
-        elif(model_ver == 2):
-            sess = initKerasSession(GPU_NUM)
+        elif(args.model_ver == 2):
+            sess = initKerasSession(args.GPU_NUM)
             with sess.as_default():
                 y_te, preds, mHist = runLeiLi(x_tr, x_va, x_te, y_tr, y_va, y_te, 
-                                              num_epochs = Nepochs, batch_size = batch_size)
+                                              num_epochs = args.Nepochs, batch_size = args.batch_size)
                 valAcc += max(mHist.history['val_acc'])
                 for k,v in mHist.history.items():
                     print(k, v)
-                with open(resultsFile, 'a') as outfile:
-                    outfile.write('Training history for fold %d:\n'%f)
-                    for k,v in mHist.history.items():
-                        outfile.write('%16s: %s\n'%(k, str(v)))
-                    outfile.write('Confusion matrix for fold %d:\n'%f)
-                    for row in confusion_matrix(y_te, preds):
-                        outfile.write('\t'+'\t '.join(map(str,row)))
-                        outfile.write('\n')
+                appendFoldResults(f, args.resultsFile, confusion_matrix(y_te, preds), mHist=mHist)
             
         #### LBP Histograms ####
-        elif(model_ver == 3):
+        elif(args.model_ver == 3):
             classifier=lbphist()
-            sess = initKerasSession(GPU_NUM)
+            sess = initKerasSession(args.GPU_NUM)
             with sess.as_default():
                 y_te, preds, mHist = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
-                                                  num_epochs = Nepochs, batch_size = batch_size)
+                                                  num_epochs = args.Nepochs, batch_size = args.batch_size)
                 valAcc += max(mHist.history['val_acc'])
                 for k,v in mHist.history.items():
                     print(k, v)
-                with open(resultsFile, 'a') as outfile:
-                    outfile.write('Training history for fold %d:\n'%f)
-                    for k,v in mHist.history.items():
-                        outfile.write('%16s: %s\n'%(k, str(v)))
-                    outfile.write('Confusion matrix for fold %d:\n'%f)
-                    for row in confusion_matrix(y_te, preds):
-                        outfile.write('\t'+'\t '.join(map(str,row)))
-                        outfile.write('\n')
-
+                appendFoldResults(f, args.resultsFile, confusion_matrix(y_te, preds), mHist=mHist)
         
         else:
-            print("model %d not defined"%model_ver)
+            print("model %d not defined"%args.model_ver)
             exit()
         
         #Add the results for this fold to the overall confusion matrix
@@ -358,7 +359,7 @@ if __name__ == '__main__':
     print("********     End of combined results    ************")
 
     #Write the results to file
-    with open(resultsFile, 'a') as outfile:
+    with open(args.resultsFile, 'a') as outfile:
         outfile.write("\n******** Combined results over %d folds ************\n"%len(folds))
         for k, v in overallResults.items():
             if(k == 'NumTestPts'):
@@ -370,4 +371,3 @@ if __name__ == '__main__':
             outfile.write('\t'+'\t '.join(map(str,row)))
             outfile.write('\n')
         outfile.write('\nEnd time: '+str(datetime.datetime.now())+'\n')
-
