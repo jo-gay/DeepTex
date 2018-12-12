@@ -25,33 +25,55 @@ https://github.com/dmarcosg/RotEqNet
 
 # Define network
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, imsz=80, nClasses=2):
         super(Net, self).__init__()
 
-        self.main = nn.Sequential(
-
-            RotConv(1, 6, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
-            VectorMaxPool(2),
-            VectorBatchNorm(6),
-
-            RotConv(6, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
-            VectorMaxPool(2),
-            VectorBatchNorm(16),
-            
-            RotConv(16, 32, [9, 9], 1, 1, n_angles=17, mode=2),
-            VectorMaxPool(2),
-            VectorBatchNorm(32),                
-
-            RotConv(32, 32, [9, 9], 1, 1, n_angles=17, mode=2),
-            Vector2Magnitude(),
-
-            nn.Conv2d(32, 128, 1),  # FC1
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.Dropout2d(0.7),
-            nn.Conv2d(128, 2, 1),  # FC2
-
-        )
+        if imsz==80: #our data
+            self.main = nn.Sequential(
+    
+                RotConv(1, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
+                VectorMaxPool(2),
+                VectorBatchNorm(16),
+    
+                RotConv(16, 64, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
+                VectorMaxPool(2),
+                VectorBatchNorm(64),
+    
+                RotConv(64, 128, [9, 9], 1, 1, n_angles=17, mode=2),
+                VectorMaxPool(2),
+                VectorBatchNorm(128),
+                
+                RotConv(128, 256, [9, 9], 1, 1, n_angles=17, mode=2),
+                Vector2Magnitude(),
+    
+                nn.Conv2d(256, 128, 1),  # FC1
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.Dropout2d(0.7),
+                nn.Conv2d(128, nClasses, 1),  # FC2
+    
+            )
+        else: #mnist
+            self.main = nn.Sequential(
+    
+                RotConv(1, 6, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
+                VectorMaxPool(2),
+                VectorBatchNorm(6),
+    
+                RotConv(6, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
+                VectorMaxPool(2),
+                VectorBatchNorm(16),
+                
+                RotConv(16, 32, [9, 9], 1, 1, n_angles=17, mode=2),
+                Vector2Magnitude(),
+    
+                nn.Conv2d(32, 128, 1),  # FC1
+                nn.BatchNorm2d(128),
+                nn.ReLU(),
+                nn.Dropout2d(0.7),
+                nn.Conv2d(128, nClasses, 1),  # FC2
+    
+            )
 
     def forward(self, x):
         x = self.main(x)
@@ -60,12 +82,13 @@ class Net(nn.Module):
 
 
 class marcos:
-    def __init__(self, gpu_no=0, fastMode=False):
+    def __init__(self, gpu_no=0, fastMode=False, shape=(1,80,80), numClasses=2):
         self.fastMode = fastMode
         self.gpu_no=gpu_no
         self.use_train_time_augmentation=False
         self.use_test_time_augmentation=False
-        
+        self.imshape=shape
+        self.numClasses=numClasses
         
     def test(self, model, dataset, mode, criterion, returnval = 0):
         """ Return test-acuracy for a dataset"""
@@ -88,8 +111,11 @@ class marcos:
 
                     for i in range(self.batch_size):
                         im = original_data[i,:,:,:].squeeze()
-                        im = rotate_im(im, rotation, 80)
-                        im = im.reshape([1, 1, 80, 80])
+                        im = rotate_im(im, rotation, self.imshape[1])
+                        if self.imshape[0]>self.imshape[-1]:
+                            im = im.reshape([1, self.imshape[-1], self.imshape[1], self.imshape[0]])
+                        else:
+                            im = im.reshape([1, self.imshape[0], self.imshape[1], self.imshape[2]])
                         im = torch.FloatTensor(im)
                         data[i,:,:,:] = im
 
@@ -105,6 +131,9 @@ class marcos:
 
             #Only run once
             else:
+#                print("about to run model with data length", len(data), "and dim", data[0].shape)
+#                out = model(data)
+#                print("output length", len(out), "and dim", out[0].shape)
                 out = F.softmax(model(data),dim=1)
 
             loss = criterion(out, labels)
@@ -120,7 +149,7 @@ class marcos:
             return acc
         else:
             print('Test accuracy:', acc)
-            return true, pred
+            return true, pred, acc
 
     def getBatch(self, dataset, mode):
         """ Collect a batch of samples from list """
@@ -134,7 +163,7 @@ class marcos:
 
             # Train-time random rotation
             if mode == 'train' and self.use_train_time_augmentation:
-                img = random_rotation(img)
+                img = random_rotation(img, self.imshape[1])
 
             data.append(np.expand_dims(np.expand_dims(img, 0), 0))
             labels.append(tmp[1].squeeze())
@@ -152,28 +181,35 @@ class marcos:
 
     def adjust_learning_rate(self, optimizer, epoch):
         """Gradually decay learning rate"""
-        if epoch == 10:
+        if epoch == 20:
             lr = self.start_lr / 10
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
-        if epoch == 20:
+        if epoch == 40:
             lr = self.start_lr / 100
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
-        if epoch == 30:
+        if epoch == 60:
             lr = self.start_lr / 1000
             for param_group in optimizer.param_groups:
                 param_group['lr'] = lr
     
     
     def classify(self, x_tr, x_va, x_te, y_tr, y_va, y_te, num_epochs=2, batch_size=128):
+        train_set = list(zip(x_tr, y_tr))
+        val_set = list(zip(x_va, y_va))
+        test_set = list(zip(x_te, y_te)) 
+        
+        return self.classifyPt2(train_set, val_set, test_set, num_epochs, batch_size)
+        
+    def classifyPt2(self, train_set, val_set, test_set, num_epochs=50, batch_size=128):
         bestModelFname='best_model.pt'
         #Setup net, loss function, optimizer and hyper parameters
-        net = Net()
-        criterion = nn.CrossEntropyLoss()
+        net = Net(train_set[0][0].shape[1], self.numClasses)
         if type(self.gpu_no) == int:
             net.cuda(self.gpu_no)
-    
+        criterion = nn.CrossEntropyLoss()
+
         if False: #Current best setup using this implementation - error rate of 1.2%
             self.start_lr = 0.01
             self.batch_size = batch_size
@@ -182,14 +218,10 @@ class marcos:
             self.use_train_time_augmentation = False
         else: #From paper using MATLAB implementation - reported error rate of 1.4%
             self.start_lr = 0.1 #was 0.1
-            self.batch_size = batch_size #was 200
+            self.batch_size = batch_size #was 600
             optimizer = optim.SGD(net.parameters(), lr=self.start_lr, weight_decay=0.01) #was weight_decay=0.01
-            self.use_test_time_augmentation = False #was false
-            self.use_train_time_augmentation = False #was false
-    
-        train_set = list(zip(x_tr, y_tr))
-        val_set = list(zip(x_va, y_va))
-        test_set = list(zip(x_te, y_te)) 
+            self.use_test_time_augmentation = True #was True
+            self.use_train_time_augmentation = True #was True
         
         best_acc = 0
         for epoch_no in range(num_epochs):
@@ -216,6 +248,8 @@ class marcos:
                 #Print training-acc
                 if batch_no%10 == 0:
                     print('Train', 'epoch:', epoch_no, ' batch:', batch_no, ' loss:', loss.data.cpu().numpy(), ' acc:', np.average((c == labels).data.cpu().numpy()))
+
+            del data, labels, out, train_set_for_epoch #make some room
     
             #Validation
             acc = self.test(net, val_set[:], 'val', criterion)
@@ -232,7 +266,7 @@ class marcos:
         # Finally test on test-set with the best model
         net.load_state_dict(torch.load(bestModelFname))
         
-        true, pred = self.test(net, test_set[:], 'test', criterion, returnval = 1)
+        true, pred, acc = self.test(net, test_set[:], 'test', criterion, returnval = 1)
     
-        return true, pred, best_acc
+        return true, pred, best_acc, acc
         

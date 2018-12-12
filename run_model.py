@@ -1,5 +1,3 @@
-#from mnist_test import run
-#from first_model_cnn import runImageClassification
 import numpy as np
 import h5py, sys, datetime
 import tensorflow as tf
@@ -55,6 +53,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         a_group_key = list(f.keys())[0]
         d=list(f[a_group_key])
         cancerData += d
+        print("Glass %d, tumour, %d images"%(g,len(d)))
     for g in trainGlasses['healthy']:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -62,6 +61,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         a_group_key = list(f.keys())[0]
         d=list(f[a_group_key])
         healthyData += d
+        print("Glass %d, healthy, %d images"%(g,len(d)))
     
     if(len(cancerData)<len(healthyData)):
         healthyDataIdx = np.random.choice(len(healthyData), size=len(cancerData), replace=False)
@@ -112,6 +112,8 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         a_group_key = list(f.keys())[0]
         d=list(f[a_group_key])
         cancerData += d
+        #print("Glass %d, tumour, %d images"%(g,len(d)))
+
     for g in testGlasses['healthy']:
         filename = filedir+'glass'+str(g)+'.hdf5'
         f = h5py.File(filename, 'r')
@@ -119,6 +121,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
         a_group_key = list(f.keys())[0]
         d=list(f[a_group_key])
         healthyData += d
+        #print("Glass %d, healthy, %d images"%(g,len(d)))
         
     x_te=np.append(healthyData, cancerData, axis=0).astype(np.float32)
     y_te=np.append(np.zeros(len(healthyData)), np.ones(len(cancerData)))
@@ -204,7 +207,7 @@ if __name__ == '__main__':
             print('Usage: python %s [<GPU_ID> <Model_ID> <fast>]'%sys.argv[0])
             print('Available models are:',['%d: %s'%(k,v) for k, v in availModels.items()])
             exit(-1)
-        GPU_NUM = int(sys.argv[1])
+        GPU_NUM = int(sys.argv[1])  
         print("Using GPU %d"%GPU_NUM)
     if len(sys.argv) > 2:
         model_ver=int(sys.argv[2])
@@ -212,11 +215,16 @@ if __name__ == '__main__':
         fastMode=True
 
     ### DEFAULT PARAMETERS ###
-    Nepochs = 20
+    Nepochs = 90
     dnow=datetime.datetime.now()
     resultsFile = 'savedResults%02d%02d.txt'%(dnow.hour, dnow.minute)
-    batch_size = 20 if model_ver == 0 else 100 #model 0 crashes with 50
-    batch_size = 50 if model_ver == 2 else batch_size #model 2 crashes with 100
+    batch_size = 100
+    if model_ver == 0 or GPU_NUM is False: #model 0 crashes with 50
+        batch_size = 20
+    elif model_ver == 1: #model 1 crashes with 70 (if 64 filters in each layer)
+        batch_size = 200
+    elif model_ver == 2: #model 2 crashes with 100
+        batch_size = 50 
     ##################
     
     folds = list(trainfolds.keys())
@@ -224,8 +232,6 @@ if __name__ == '__main__':
         folds=[2,]
         Nepochs=2
 
-    if(GPU_NUM == False): #reduce batch size if running on cpu
-        batch_size=20
     valAcc=0
     confusionMat=[[0,0],[0,0]]
     overallResults={'Precision':0, 'Accuracy':0, 'Recall':0, 'F1-Score':0, 'ValidationAcc':0, 'NumTestPts':0, 'Confusion':[]}
@@ -272,10 +278,11 @@ if __name__ == '__main__':
         #### Marcos ####
         elif(model_ver == 1):
             classifier=marcos(GPU_NUM, fastMode)
-            y_te, preds, v_acc = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
+            y_te, preds, v_acc, t_acc = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
                                               num_epochs = Nepochs, batch_size = batch_size)
             with open(resultsFile, 'a') as outfile:
                 outfile.write('Validation accuracy for fold %d: %2.5f\n'%(f, v_acc))
+                outfile.write('Test accuracy for fold %d: %2.5f\n'%(f, t_acc))
                 outfile.write('Confusion matrix for fold %d:\n'%f)
                 for row in confusion_matrix(y_te, preds):
                     outfile.write('\t'+'\t '.join(map(str,row)))
