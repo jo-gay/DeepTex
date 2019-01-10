@@ -21,36 +21,67 @@ https://arxiv.org/abs/1612.09346
 https://github.com/dmarcosg/RotEqNet
 """
 
+useOriginalParams=True
+
+#dummy class to emulate Keras model history record
+class trainingHistory(object):
+    pass
+
 # Define network
 class Net(nn.Module):
     def __init__(self, imsz=80, nClasses=2):
         super(Net, self).__init__()
 
         if imsz==80: #our data
-            self.main = nn.Sequential(
+            if useOriginalParams: #Original settings
+                self.main = nn.Sequential(
     
-                RotConv(1, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
-                VectorMaxPool(2), #size 40 now
-                VectorBatchNorm(16),
-    
-                RotConv(16, 64, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
-                VectorMaxPool(2), #size 20 now
-                VectorBatchNorm(64),
-    
-                RotConv(64, 128, [9, 9], 1, 1, n_angles=17, mode=2),
-                VectorMaxPool(2), #size 7 now (20-6)/2
-                VectorBatchNorm(128),
-                
-                RotConv(128, 256, [9, 9], 1, 1, n_angles=17, mode=2),
-                Vector2Magnitude(), #size 1 now (7-6)
-    
-                nn.Conv2d(256, 128, 1),  # FC1
-                nn.BatchNorm2d(128),
-                nn.ReLU(),
-                nn.Dropout2d(0.7),
-                nn.Conv2d(128, nClasses, 1),  # FC2
-    
-            )
+                    RotConv(1, 6, [9, 9], 1, 9 // 2, n_angles=17, mode=1),
+                    VectorMaxPool(2),
+                    VectorBatchNorm(6),
+        
+                    RotConv(6, 16, [9, 9], 1, 9 // 2, n_angles=17, mode=2),
+                    VectorMaxPool(2),
+                    VectorBatchNorm(16),
+        
+                    RotConv(16, 32, [9, 9], 1, 1, n_angles=17, mode=2),
+                    VectorMaxPool(2),
+                    VectorBatchNorm(32),
+                    
+                    RotConv(32, 32, [9, 9], 1, 1, n_angles=17, mode=2),
+                    Vector2Magnitude(),
+        
+                    nn.Dropout2d(0.7), #added dropout layer because of overfitting
+                    nn.Conv2d(32, 128, 1),  # FC1
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(),
+                    nn.Dropout2d(0.7),
+                    nn.Conv2d(128, nClasses, 1),  # FC2
+                )
+            else: #tuned to oral cancer dataset
+                self.main = nn.Sequential(
+                    RotConv(1, 16, [9, 9], 1, 0, n_angles=17, mode=1), #padding was 9//2
+                    VectorMaxPool(2), #size 36 now
+                    VectorBatchNorm(16),
+        
+                    RotConv(16, 32, [9, 9], 1, 0, n_angles=17, mode=2), #padding was 9//2
+                    VectorMaxPool(2), #size 14 now
+                    VectorBatchNorm(32),
+        
+                    RotConv(32, 64, [9, 9], 1, 9 // 2, n_angles=17, mode=2), #padding was 1
+                    VectorMaxPool(2), #size 7 now 
+                    VectorBatchNorm(64),
+                    
+                    RotConv(64, 64, [9, 9], 1, 1, n_angles=17, mode=2), #padding was 1
+                    Vector2Magnitude(), #size 1 now (7-6)
+        
+                    nn.Conv2d(64, 128, 1),  # FC1
+                    nn.BatchNorm2d(128),
+                    nn.ReLU(),
+                    nn.Dropout2d(0.7),
+                    nn.Conv2d(64, nClasses, 1),  # FC2
+        
+                )
         else: #mnist, size = 28
             self.main = nn.Sequential(
     
@@ -183,17 +214,17 @@ class marcos:
     def adjust_learning_rate(self, optimizer, epoch):
         """Gradually decay learning rate"""
         if epoch == 20:
-            lr = self.start_lr / 10
+            self.lr = self.start_lr / 10
             for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+                param_group['lr'] = self.lr
         if epoch == 40:
-            lr = self.start_lr / 100
+            self.lr = self.start_lr / 100
             for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+                param_group['lr'] = self.lr
         if epoch == 60:
-            lr = self.start_lr / 1000
+            self.lr = self.start_lr / 1000
             for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
+                param_group['lr'] = self.lr
     
     
     def classify(self, x_tr, x_va, x_te, y_tr, y_va, y_te, num_epochs=2, batch_size=128):
@@ -222,20 +253,24 @@ class marcos:
             net.cuda(self.gpu_no)
         criterion = nn.CrossEntropyLoss()
 
-        if False: #Current best setup using this implementation - error rate of 1.2%
+        if not useOriginalParams: #Current best setup using this implementation - error rate of 1.2%
             self.start_lr = 0.01
             self.batch_size = batch_size
             optimizer = optim.Adam(net.parameters(), lr=self.start_lr)  # , weight_decay=0.01)
-            self.use_test_time_augmentation = True
+            self.use_test_time_augmentation = False #was True
             self.use_train_time_augmentation = False
         else: #From paper using MATLAB implementation - reported error rate of 1.4%
             self.start_lr = 0.1 #was 0.1
-            self.batch_size = batch_size #was 600
+            self.batch_size = batch_size #was 200
             optimizer = optim.SGD(net.parameters(), lr=self.start_lr, weight_decay=0.01) #was weight_decay=0.01
             self.use_test_time_augmentation = False #was True
             self.use_train_time_augmentation = False #was True
+
+        self.lr = self.start_lr
         
         best_acc = 0
+        mHist=trainingHistory()
+        mHist.history={'lr':[], 'val_acc':[]}
         for epoch_no in range(num_epochs):
     
             #Random order for each epoch
@@ -272,7 +307,9 @@ class marcos:
                 torch.save(net.state_dict(), bestModelFname)
                 best_acc = acc
                 print('Model saved')
-    
+            
+            mHist.history['lr'].append(self.lr)
+            mHist.history['val_acc'].append(acc)
             self.adjust_learning_rate(optimizer, epoch_no)
     
         # Finally test on test-set with the best model
@@ -280,5 +317,5 @@ class marcos:
         
         true, pred, acc = self.test(net, test_set[:], 'test', criterion, returnval = 1)
     
-        return true, pred, best_acc, acc
+        return true, pred, mHist
         

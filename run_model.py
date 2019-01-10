@@ -12,11 +12,13 @@ from lbphist import lbphist
 
 availModels={0: 'Juefei-Xu', 1: 'Marcos', 2: 'LiLei', 3: 'LBPhist'}
 
-'''DEFINE GPU SETUP - specify which gpu to use on command line, default None'''
+'''DEFINE GPU SETUP - this is the total number of gpus in system.
+Specify which gpu to use on command line (or None)
+'''
 totalGPUs=2
 
 '''DEFINE PARAMETERS RELATING TO DATA'''
-#Data is stored in <filedir><fname>k.hdf5 for k in trainfolds.keys and testfolds.keys
+#Data is stored in <filedir><fname><k>.hdf5 for k in trainfolds.keys and testfolds.keys
 filedir = './data/'
 fname='glass'
 trainfolds={
@@ -30,16 +32,16 @@ testfolds={
         3:{'healthy': [7,8], 'cancer':[37,38]},
         }
 
-'''For a given fold, load the training and testing data. Limit the number
-of healthy cells in the training data so that there are the same number of
-healthy cells as cancer cells - cells are chosen at random and seed can be
-specified.
-Choose a validation set as a random subset of valPercent of the training data
-Augment training data (not test data) with mirrored and rotated versions, if augment
-Change order from channels first to channels last if changeOrder
-Normalize each image (mean 0, std 1) if normalize. 
-'''
 def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=True, normalize=True, fastMode=False):
+    '''For a given fold, load the training and testing data. Limit the number
+    of healthy cells in the training data so that there are the same number of
+    healthy cells as cancer cells - cells are chosen at random and seed can be
+    specified.
+    Choose a validation set as a random subset of valPercent of the training data
+    Augment training data (not test data) with mirrored and rotated versions, if augment
+    Change order from channels first to channels last if changeOrder
+    Normalize each image (mean 0, std 1) if normalize. 
+    '''
     if(not seed is None):
         set.seed(seed)
 
@@ -155,15 +157,15 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
     return x_tr, x_va, x_te, y_tr, y_va, y_te
     
 
-'''
-Get a Keras session, configuring which GPU(s) to use.
-Assumes that the machine has totalGPU GPUs (default 2) and if a
-number from 0 to totalGPUs-1 is entered, uses that GPU. 
-If GPU_NUM is None, use CPU only.
-Otherwise (e.g. commandline arg = totalGPUs), use all GPUs.
-Also set image ordering in Keras to match data.
-'''
 def initKerasSession(GPU_NUM, totalGPUs=2, imageOrdering='tf'):
+    '''
+    Get a Keras session, configuring which GPU(s) to use.
+    Assumes that the machine has totalGPU GPUs (default 2) and if a
+    number from 0 to totalGPUs-1 is entered, uses that GPU. 
+    If GPU_NUM is None, use CPU only.
+    Otherwise (e.g. commandline arg = totalGPUs), use all GPUs.
+    Also set image ordering in Keras to match data.
+    '''
     import tensorflow as tf
     from keras import backend as K
 
@@ -191,13 +193,13 @@ def initKerasSession(GPU_NUM, totalGPUs=2, imageOrdering='tf'):
     return sess
 
 
-''' Append results for fold f to resultsFile, including confusion matrix cm
-    and any of the following if available: 
-        model History (from Keras) mHist, 
-        validation accuracy v_acc, 
-        test accuracy t_acc
-'''
 def appendFoldResults(f, resultsFile, cm, mHist=None, v_acc=None, t_acc=None):
+    ''' Append results for fold f to resultsFile, including confusion matrix cm
+        and any of the following if available: 
+            model History (from Keras) mHist, 
+            validation accuracy v_acc, 
+            test accuracy t_acc
+    '''
     with open(resultsFile, 'a') as outfile:
         if mHist is not None:
             outfile.write('Training history for fold %d:\n'%f)
@@ -209,13 +211,15 @@ def appendFoldResults(f, resultsFile, cm, mHist=None, v_acc=None, t_acc=None):
             outfile.write('\n')
         if v_acc is not None:
             outfile.write('Validation accuracy for fold %d: %2.5f\n'%(f, v_acc))
-        if t_acc is not None:
-            outfile.write('Test accuracy for fold %d: %2.5f\n'%(f, t_acc))
+        if t_acc is None:
+            t_acc = (cm[0][0]+cm[1][1])/(cm[0][0]+cm[0][1]+cm[1][0]+cm[1][1])
+        outfile.write('Test accuracy for fold %d: %2.5f\n'%(f, t_acc))
+            
 
 
-''' Read command line parameters. Defaults are also set here
-'''
 def readCommandLine(totalGPUs=2):
+    ''' Read command line parameters. Defaults are also set here
+    '''
     dnow=datetime.datetime.now()
     resultsFile = 'savedResults%02d%02d.txt'%(dnow.hour, dnow.minute)
 
@@ -240,9 +244,9 @@ def readCommandLine(totalGPUs=2):
     if args.model_ver == 0 or args.GPU_NUM is None: #model 0 crashes with 50
         max_bs = 20
     elif args.model_ver == 1: #model 1 crashes with 70 (if 64 filters in each layer)
-        max_bs = 50
-    elif args.model_ver == 2: #model 2 crashes with 100
-        max_bs = 50 
+        max_bs = 200
+    elif args.model_ver == 2: #model 2 crashes with 100(if filters increased)
+        max_bs = 200 
     if(args.batch_size > max_bs):
         args.batch_size = max_bs
     
@@ -250,11 +254,11 @@ def readCommandLine(totalGPUs=2):
     return args
 
 
-''' Main function reads command line arguments, iterates through folds
+if __name__ == '__main__':
+    ''' Main function reads command line arguments, iterates through folds
     and for each fold, trains and evaluates the chosen model.
     Results are output to screen and to a file.
-'''
-if __name__ == '__main__':
+    '''
 
     args=readCommandLine(totalGPUs)
     
@@ -288,7 +292,7 @@ if __name__ == '__main__':
                                                   fastMode=args.fastMode)
         #### Juefei ####
         if(args.model_ver == 0):
-            classifier=juefei(args.fastMode, nLayers=10, sparsity=0.9)
+            classifier=juefei(args.fastMode, nLayers=20, sparsity=0.9)
             sess = initKerasSession(args.GPU_NUM)
             with sess.as_default():
                 y_te, preds, mHist = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
@@ -301,10 +305,12 @@ if __name__ == '__main__':
         #### Marcos ####
         elif(args.model_ver == 1):
             classifier=marcos(args.GPU_NUM, args.fastMode)
-            y_te, preds, v_acc, t_acc = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
+            y_te, preds, mHist = classifier.classify(x_tr, x_va, x_te, y_tr, y_va, y_te, 
                                               num_epochs = args.Nepochs, batch_size = args.batch_size)
-            appendFoldResults(f, args.resultsFile, confusion_matrix(y_te, preds), v_acc=v_acc, t_acc=t_acc)
-            valAcc+=v_acc
+            valAcc += max(mHist.history['val_acc'])
+            for k,v in mHist.history.items():
+                print(k, v)
+            appendFoldResults(f, args.resultsFile, confusion_matrix(y_te, preds), mHist)
 
         #### LeiLi ####
         elif(args.model_ver == 2):
