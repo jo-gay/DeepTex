@@ -1,5 +1,5 @@
 import numpy as np
-import h5py, datetime
+import h5py, datetime, random
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
 import argparse
@@ -43,7 +43,7 @@ def loadData(foldNr=2, valPercent=0.2, augment=False, seed=None, changeOrder=Tru
     Normalize each image (mean 0, std 1) if normalize. 
     '''
     if(not seed is None):
-        set.seed(seed)
+        random.seed(seed)
 
     trainGlasses=trainfolds[foldNr]
     testGlasses=testfolds[foldNr]
